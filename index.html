@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="description" content="白ワインセラーの在庫・購入・テイスティング管理">
 <meta name="theme-color" content="#1A1916">
 <link rel="manifest" href="manifest.json">
@@ -10,10 +10,15 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Blanc">
 <title>Blanc - White Wine Cellar</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- xlsx は Terada タブの取込専用。defer にして起動を止めない -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400;1,500&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -23,7 +28,7 @@
   --sage:#7A8C72;--sage-light:#EEF2EC;
   --bg:#F7F6F2;--bg2:#EFEDE7;--bg3:#FFFFFF;
   --border:rgba(100,95,80,0.13);--border2:rgba(100,95,80,0.22);
-  --text:#1E1C18;--text2:#5A5650;--text3:#A09A8C;
+  --text:#1E1C18;--text2:#5A5650;--text3:#7C7668;--text3-soft:#8F8878;--sage-text:#4F6146;
   --radius:2px;
   --fd:'Playfair Display','Times New Roman',serif;
   --fb:'Jost',sans-serif;
@@ -104,7 +109,7 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
 
 /* ── Stock badges ── */
 .wine-stock-badge{display:inline-block;font-size:9px;padding:2px 7px;letter-spacing:0.08em;text-transform:uppercase;font-weight:500;white-space:nowrap}
-.badge-ok{background:var(--sage-light);color:var(--sage);border:0.5px solid rgba(122,140,114,0.3)}
+.badge-ok{color:var(--sage-text) !important;background:var(--sage-light);color:var(--sage);border:0.5px solid rgba(122,140,114,0.3)}
 .badge-low{background:#FDF4E3;color:#8C6820;border:0.5px solid rgba(140,104,32,0.3)}
 .badge-out{background:var(--bg2);color:var(--text3);border:0.5px solid var(--border)}
 
@@ -283,6 +288,153 @@ textarea{resize:vertical;min-height:60px}
   .status-msg{font-size:14px}
   .loader-text{font-size:15px}
 }
+/* ══════════════════════════════════════════════════════════════
+   モバイル調整（2026-09 追加）
+
+   既存の @media(max-width:768px) は HTML/JS 側のインライン style に
+   負けて効いていない箇所が多い。ここは最後に読まれるので、
+   インラインに勝つために !important を使っている。
+   インライン style 自体の削除は、JS の書き換えを伴うため別途。
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── セーフエリア（viewport-fit=cover とセットで機能する） ── */
+:root{
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-l:env(safe-area-inset-left,0px);
+  --safe-r:env(safe-area-inset-right,0px);
+  --header-h:52px;
+}
+html,body{overflow-x:hidden}
+body{min-height:100dvh;overscroll-behavior-y:none}
+
+/* ヘッダーをステータスバー帯まで伸ばす。
+   これが無いと viewport-fit=cover でロゴがノッチに食い込む。 */
+.app-header{
+  height:auto;
+  min-height:calc(var(--header-h) + var(--safe-t));
+  padding:var(--safe-t) calc(20px + var(--safe-r)) 0 calc(20px + var(--safe-l));
+}
+/* タブバーを固定。従来はスクロールすると消えて戻れなかった。 */
+.nav-bar{
+  position:sticky;
+  top:calc(var(--header-h) + var(--safe-t));
+  z-index:99;
+  -webkit-overflow-scrolling:touch;
+  /* 右端をフェードさせ「横に続く」ことを示す（Historique が画面外にある） */
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent 100%);
+  mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent 100%);
+}
+.page{padding:20px calc(16px + var(--safe-r)) calc(40px + var(--safe-b)) calc(16px + var(--safe-l))}
+.modal-overlay{
+  padding:calc(16px + var(--safe-t)) calc(16px + var(--safe-r))
+          calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+}
+
+/* ── タッチ操作のフィードバック ──
+   既存は :hover のみ。スマホには hover が無いので全部死んでいた。 */
+*{-webkit-tap-highlight-color:transparent}
+@media(hover:none){
+  .btn:active,.btn-sm:active,.chip:active,.view-btn:active,
+  .alpha-btn:active,.header-btn:active,.nav-tab:active{
+    transform:scale(.97);filter:brightness(.94);
+    transition:transform .06s ease,filter .06s ease;
+  }
+  .wine-row:active,.group-wine-row:active,.producer-header:active{
+    background:var(--bg2);transition:background .06s;
+  }
+}
+
+@media(max-width:768px){
+  :root{--header-h:60px}
+  .page{padding:16px calc(12px + var(--safe-r)) calc(80px + var(--safe-b)) calc(12px + var(--safe-l))}
+  .nav-tab{padding:14px 13px;letter-spacing:0.04em}
+
+  /* ── iOS の自動ズーム対策 ──
+     font-size が 16px 未満の入力欄にフォーカスすると、iOS は
+     ページ全体を拡大し、指で戻すまで拡大されたままになる。 */
+  input,select,textarea{
+    font-size:16px !important;
+    padding:11px 12px !important;
+    min-height:44px;
+    border-radius:var(--radius);
+    -webkit-appearance:none;appearance:none;
+  }
+  textarea{min-height:88px}
+  select{
+    padding-right:34px !important;
+    background-image:linear-gradient(45deg,transparent 50%,var(--text3) 50%),
+                     linear-gradient(135deg,var(--text3) 50%,transparent 50%);
+    background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;
+    background-size:5px 5px,5px 5px;background-repeat:no-repeat;
+  }
+
+  /* ── タップ領域を 44px 以上に ── */
+  .modal-close{
+    font-size:20px;width:44px;height:44px;
+    top:calc(8px + var(--safe-t));right:8px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .star-btn{font-size:30px;padding:7px 5px;min-height:44px}
+  .btn-sm{min-height:44px;padding:11px 14px;display:inline-flex;align-items:center}
+  .chip,.view-btn{min-height:44px;padding:11px 16px;display:inline-flex;align-items:center}
+  .header-btn{min-height:44px;padding:11px 16px}
+  .alpha-btn{width:44px;height:44px}
+  #btn-select-mode,#btn-drink-selected{
+    font-size:13px !important;padding:10px 14px !important;min-height:44px;
+  }
+
+  /* 日本語ラベルに欧文用のトラッキングが掛かって間延びしていた。
+     ラテン文字のラベル（nav-tab / stat-label / card-title）は
+     このデザインの品格そのものなので触らない。 */
+  .btn-sm,.chip{letter-spacing:0.01em;text-transform:none}
+
+  /* ── 検索バー：42px/24px/38px がバラバラに3行折返ししていた ── */
+  .search-bar{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:stretch}
+  .search-bar input{grid-column:1/-1;min-width:0}
+  .search-bar select{width:100% !important;margin:0}
+  .search-bar .view-toggle{grid-column:1/-1;margin-left:0;display:grid;grid-template-columns:1fr 1fr}
+  .search-bar .view-btn{width:100%;justify-content:center;text-align:center}
+
+  /* ── Reception：9カラム固定で最小幅830px、ページごと横に流れていた ── */
+  .scan-item{grid-template-columns:1fr 1fr !important;gap:10px 8px;padding:12px 14px}
+  .scan-item > div:nth-child(2){grid-column:1/-1;order:-1}
+  .scan-item input{width:100% !important}
+
+  /* ── 統計カード：110px×3 で3列しか入らず4枚目だけ全幅に伸びていた ── */
+  .stat-grid{grid-template-columns:repeat(2,1fr);gap:8px}
+  .stat-card{padding:16px 12px}
+  .stat-value{font-size:28px !important}
+  .stat-value span{font-size:13px !important}
+
+  /* ── 操作ボタン：7個が等価に折返し、最頻の「飲んだ」が5番目、
+        取り消せない「削除」がその2つ隣にあった ── */
+  .wine-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .wine-actions > .btn-sm{min-height:44px;font-size:12px;padding:10px 6px}
+  .wine-actions > .btn-sm:nth-child(5){        /* 飲んだ */
+    grid-column:1/-1;order:-1;
+    background:var(--stone-900) !important;color:var(--gold-light) !important;
+    border-color:var(--stone-900) !important;
+    font-size:14px;letter-spacing:0.08em;min-height:48px;
+  }
+  .wine-actions > .btn-sm.danger{              /* 削除：最下段へ隔離 */
+    grid-column:1/-1;order:9;
+    background:transparent;border-color:transparent;
+    border-top:0.5px solid var(--border);
+    color:#9A6055;font-size:12px;min-height:44px;margin-top:4px;
+  }
+
+  /* テイスティングのコメントは一番読ませたいテキスト */
+  .tc-note{font-size:15px;line-height:1.75}
+}
+
+/* 詳細パネルの開閉が瞬間切替だったので、中身だけフェードさせる */
+.wine-detail.open{animation:detail-in .18s ease-out}
+@keyframes detail-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){
+  .wine-detail.open{animation:none}
+  @media(hover:none){.btn:active,.btn-sm:active,.chip:active{transform:none}}
+}
 </style>
 </head>
 <body>
@@ -307,7 +459,7 @@ textarea{resize:vertical;min-height:60px}
 <div class="page active" id="page-cellar">
   <div id="stat-grid" class="stat-grid"></div>
   <div class="search-bar">
-    <input type="text" id="cellar-search" placeholder="ワイン名・生産者..." oninput="renderCellar()">
+    <input type="text" id="cellar-search" placeholder="ワイン名・生産者..." oninput="debounced(renderCellar)">
     <select id="cellar-region" onchange="renderCellar()" style="width:auto;font-size:11px;padding:4px 8px;">
       <option value="">すべての産地</option>
       <option>ブルゴーニュ</option><option>アルザス</option><option>ロワール</option>
@@ -358,7 +510,7 @@ textarea{resize:vertical;min-height:60px}
   </div>
   <div id="importStatus" style="margin-bottom:8px;"></div>
   <div class="search-bar">
-    <input type="text" id="storage-search" placeholder="ワイン名・生産者..." oninput="renderStorage()">
+    <input type="text" id="storage-search" placeholder="ワイン名・生産者..." oninput="debounced(renderStorage)">
     <select id="storage-area" onchange="renderStorage()">
       <option value="">すべての産地</option>
       <option value="Bourgogne">Bourgogne</option>
@@ -411,7 +563,7 @@ textarea{resize:vertical;min-height:60px}
 <!-- ── Historique ── -->
 <div class="page" id="page-historique">
   <div class="search-bar">
-    <input type="text" id="historique-search" placeholder="ワイン名・生産者..." oninput="renderHistorique()">
+    <input type="text" id="historique-search" placeholder="ワイン名・生産者..." oninput="debounced(renderHistorique)">
     <select id="historique-sort" onchange="renderHistorique()" style="width:auto;font-size:10px;padding:4px 8px;">
       <option value="producer">生産者順</option>
       <option value="price-asc">単価 安い順</option>
@@ -550,6 +702,13 @@ function gasCall(fn, arg) {
   });
 }
 
+var _debTimer = null;
+// 検索は1文字ごとに Cave 全体(約3,400ノード)を作り直していた
+function debounced(fn) {
+  clearTimeout(_debTimer);
+  _debTimer = setTimeout(fn, 180);
+}
+
 function showLoader(v) {
   var el = document.getElementById('globalLoader');
   if (el) el.style.display = v ? 'flex' : 'none';
@@ -568,19 +727,38 @@ function mapWine(r) {
 
 function loadData(retryCount) {
   retryCount = retryCount || 0;
-  showLoader(true);
   try { var s = localStorage.getItem('storageWines'); if (s) storageWines = JSON.parse(s); } catch(e) {}
   try { var m = localStorage.getItem('nameMaster'); if (m) nameMaster = JSON.parse(m); } catch(e) {}
-  gasCall('getAllData').then(function(data) {
+  loadCategories();
+
+  // ① 前回の在庫があれば通信を待たずに描く。オフラインでも一覧が見える。
+  var painted = false;
+  if (retryCount === 0) {
+    try {
+      var c = localStorage.getItem('winesCache');
+      if (c) { db.wines = JSON.parse(c); renderDash(); renderCellar(); painted = true; }
+    } catch(e) {}
+  }
+  showLoader(!painted);
+
+  // ② 起動に要る wines だけ先に取る（getAllData は4シート全部読んでいた）
+  gasCall('getWinesOnly').then(function(data) {
     if (data.error) { alert('エラー: ' + data.error); showLoader(false); return; }
     db.wines = (data.wines||[]).map(mapWine);
-    db.purchases = (data.purchases||[]).map(function(r) {
+    try { localStorage.setItem('winesCache', JSON.stringify(db.wines)); } catch(e) {}
+    renderDash(); renderCellar(); showLoader(false);
+
+    // ③ 残りは裏で取る。Historique / Tasting を開くまで表示に影響しない。
+    return gasCall('getSubData').then(function(sub) {
+      if (!sub || sub.error) return;
+      var data = sub;
+      db.purchases = (data.purchases||[]).map(function(r) {
       return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
         producer:r['生産者']||'', vintage:r['ヴィンテージ']||'',
         qty:parseInt(r['本数'])||1, price:parseInt(r['単価(¥)'])||0,
         supplier:r['仕入先']||'', date:r['購入日'] };
     });
-    db.tastings = (data.tastings||[]).map(function(r) {
+      db.tastings = (data.tastings||[]).map(function(r) {
       return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
         date:r['日付'], scene:r['シーン'], star:parseInt(r['評価(★)'])||0,
         appearance:{color:r['外観-色調'],clarity:r['外観-清澄']},
@@ -588,29 +766,23 @@ function loadData(retryCount) {
         palate:{sweet:r['味わい-甘辛'],detail:r['味わい-詳細']},
         comment:r['総合コメント'] };
     });
-    db.drinking = (data.drinking||[]).map(function(r) {
+      db.drinking = (data.drinking||[]).map(function(r) {
       return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
         producer:r['生産者']||'', vintage:r['ヴィンテージ']||'',
         date:r['飲んだ日'], qty:parseInt(r['本数'])||1,
         price:parseInt(r['単価(¥)'])||0, memo:r['メモ']||'' };
     });
-    loadCategories();
-    renderDash();
-    renderCellar();
-    showLoader(false);
-    gasCall('getNameMaster').then(function(r) {
-      if (!r.error) {
-        nameMaster = { domaine: r.domaine||[], wine: r.wine||[] };
-        localStorage.setItem('nameMaster', JSON.stringify(nameMaster));
-      }
+      _latestPurchaseByWine = null;
+      renderDash();   // Total と Historique 件数をここで確定させる
     }).catch(function() {});
+  }, function(e) {
+    // 通信の失敗だけをここで捕まえる（描画の例外をリトライしないため）
+    if (retryCount < 3) { setTimeout(function() { loadData(retryCount + 1); }, 1500); }
+    else if (!painted) { alert('接続エラー: ' + e.message); showLoader(false); }
+    else { showLoader(false); }   // キャッシュが出ているなら黙って諦める
   }).catch(function(e) {
-    if (retryCount < 3) {
-      setTimeout(function() { loadData(retryCount + 1); }, 1500);
-    } else {
-      alert('接続エラー: ' + e.message);
-      showLoader(false);
-    }
+    showLoader(false);
+    alert('表示エラー: ' + ((e && e.message) || e));
   });
 }
 
@@ -726,12 +898,20 @@ function setCat(wineId, cat) {
   renderCellar();
   renderDash();
 }
-function getLatestPurchaseDate(wineId) {
-  var latest = '';
+var _latestPurchaseByWine = null;
+function buildPurchaseIndex() {
+  _latestPurchaseByWine = {};
   db.purchases.forEach(function(p) {
-    if (p.wineId === wineId && p.date > latest) latest = p.date;
+    if (!p.wineId) return;
+    if (!_latestPurchaseByWine[p.wineId] || p.date > _latestPurchaseByWine[p.wineId]) {
+      _latestPurchaseByWine[p.wineId] = p.date;
+    }
   });
-  return latest;
+}
+// 旧実装は呼ぶたびに db.purchases を全走査していた（200件×1000件で最大20万回）
+function getLatestPurchaseDate(wineId) {
+  if (!_latestPurchaseByWine) buildPurchaseIndex();
+  return _latestPurchaseByWine[wineId] || '';
 }
 function getProducerType(producer) {
   if (!producer) return '';
@@ -827,7 +1007,7 @@ function renderCellarGroup(wines, cl, sortMode) {
       if (w.supplier) infoStr += (infoStr ? ' / ' : '') + w.supplier;
       if (infoStr) h += '<span style="font-size:11px;color:var(--text3);margin-left:6px;">' + infoStr + '</span>';
       h += '</div>';
-      h += '<div class="wine-detail" id="detail-' + w.id + '">' + makeDetailPanel(w) + '</div>';
+      h += '<div class="wine-detail" id="detail-' + w.id + '"></div>';
       h += '</div>';
       h += '<div class="wine-right"><span class="wine-stock-badge ' + sc + '">' + stxt + '</span></div>';
       h += '</div>';
@@ -860,7 +1040,7 @@ function renderCellarList(wines, cl, sortMode) {
       (w.vintage ? '<span class="wine-vintage">' + w.vintage + '</span>' : '') +
       '</div>' +
       (meta ? '<div class="wine-meta">' + meta + '</div>' : '') +
-      '<div class="wine-detail" id="detail-' + w.id + '">' + makeDetailPanel(w) + '</div>' +
+      '<div class="wine-detail" id="detail-' + w.id + '"></div>' +
       '</div>' +
       '<div class="wine-right"><span class="wine-stock-badge ' + sc + '">' + stxt + '</span>' +
       (w.price ? '<div style="font-size:11px;color:var(--text3);margin-top:2px;">\u00A5' + w.price.toLocaleString() + '</div>' : '') +
@@ -874,6 +1054,12 @@ function toggleDetail(id) {
   var d = document.getElementById('detail-' + id);
   var r = document.getElementById('row-' + id);
   if (!d) return;
+  // 初めて開くときだけ中身を作る（全件ぶん先に作ると重い）
+  if (!d.innerHTML) {
+    var w = null;
+    db.wines.forEach(function(x) { if (x.id === id) w = x; });
+    if (w) d.innerHTML = makeDetailPanel(w);
+  }
   var open = d.classList.toggle('open');
   if (r) r.classList.toggle('expanded', open);
 }
@@ -1229,7 +1415,18 @@ function lookupProducer(text) {
   return found;
 }
 
+function ensureNameMaster() {
+  if (nameMaster.wine && nameMaster.wine.length) return;
+  gasCall('getNameMaster').then(function(r) {
+    if (r && !r.error) {
+      nameMaster = { domaine: r.domaine||[], wine: r.wine||[] };
+      try { localStorage.setItem('nameMaster', JSON.stringify(nameMaster)); } catch(e) {}
+    }
+  }).catch(function() {});
+}
+
 function parseJsonPaste() {
+  ensureNameMaster();
   var text = document.getElementById('jsonPaste').value.trim();
   var status = document.getElementById('scanStatus');
   var results = document.getElementById('scanResults');
