@@ -388,10 +388,15 @@ function fillWineIds() {
  * ============================================================== */
 
 /**
- * 簡易トークン認証。空文字なら認証なし（URL を知っていれば誰でも叩ける）。
- * 有効にする場合は index.html の API_TOKEN と同じ文字列にする。
+ * 合言葉。index.html の API_TOKEN と同じ文字列にすること。
+ * 読み取りは合言葉なしで通し、書き込み系だけ必須にしている。
+ *
+ * この構成ではアクセス権を「自分のみ」にできない。
+ * 「自分のみ」だと GAS は accounts.google.com へリダイレクトし、
+ * そこには CORS ヘッダーが無いためブラウザが fetch を打ち切る。
+ * よってデプロイは「全員」固定で、保護はこの合言葉で行う。
  */
-var API_TOKEN = '';
+var API_TOKEN = 'blanc-GSAIae2Dt40P';
 
 /** doGet（JSONP フォールバック）で許可する読み取り専用の関数 */
 var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster'];
@@ -433,6 +438,9 @@ function doPost(e) {
   } catch (err) {
     return jsonOut_({ ok: false, error: 'リクエストの JSON を解析できませんでした' });
   }
+  if (!body || typeof body !== 'object') {
+    return jsonOut_({ ok: false, error: 'リクエストが不正です' });
+  }
   return jsonOut_(dispatch_(body.fn, body.arg, body.token));
 }
 
@@ -467,12 +475,13 @@ function doGet(e) {
 }
 
 function dispatch_(fn, arg, token) {
-  if (API_TOKEN && token !== API_TOKEN) {
-    return { ok: false, error: '認証に失敗しました' };
-  }
   var handlers = apiHandlers_();
   if (!fn || !handlers.hasOwnProperty(fn)) {
     return { ok: false, error: '未知の関数です: ' + fn };
+  }
+  /* 読み取りは素通し。書き込み系だけ合言葉を要求する */
+  if (API_TOKEN && READ_ONLY_FNS.indexOf(fn) === -1 && token !== API_TOKEN) {
+    return { ok: false, error: '認証に失敗しました' };
   }
   try {
     return { ok: true, data: handlers[fn](arg) };

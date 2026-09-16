@@ -56,8 +56,15 @@ self.addEventListener('fetch', function (event) {
     event.respondWith(
       fetch(req)
         .then(function (res) {
-          var copy = res.clone();
-          caches.open(CACHE_VERSION).then(function (c) { c.put('./index.html', copy); });
+          // ステータスを確認してからキャッシュする。
+          // 確認せずに入れると、デプロイ中の一瞬に 404 を掴んだとき
+          // その 404 が index.html として焼き付き、CACHE_VERSION を
+          // 上げるまでオフライン時に 404 が出続ける。
+          // redirected なレスポンスはナビゲーションに返すと画面が真っ白になるため除外。
+          if (res && res.ok && res.status === 200 && !res.redirected) {
+            var copy = res.clone();
+            caches.open(CACHE_VERSION).then(function (c) { c.put('./index.html', copy); });
+          }
           return res;
         })
         .catch(function () {
