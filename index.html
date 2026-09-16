@@ -730,6 +730,21 @@ function showLoader(v) {
   if (el) el.style.display = v ? 'flex' : 'none';
 }
 
+// GAS は { h:[列名...], r:[[値...]] } の圧縮形で返す。
+// 旧形式（行ごとに列名を持つオブジェクトの配列）もそのまま受けられるので、
+// Code.gs の貼り替え前後どちらの状態でも動く。
+function toObjs(sec) {
+  if (!sec) return [];
+  if (Object.prototype.toString.call(sec) === '[object Array]') return sec;  // 旧形式
+  var h = sec.h || [], r = sec.r || [], out = [];
+  for (var i = 0; i < r.length; i++) {
+    var row = r[i], o = {};
+    for (var j = 0; j < h.length; j++) o[h[j]] = row[j];
+    out.push(o);
+  }
+  return out;
+}
+
 function mapWine(r) {
   var pd = r['購入日'] || '';
   if (pd && pd.indexOf('GMT') >= 0) { pd = pd.slice(0, 15).trim().replace(/\s+/g, '-'); }
@@ -742,13 +757,13 @@ function mapWine(r) {
 }
 
 function mapSubData(data) {
-  db.purchases = (data.purchases||[]).map(function(r) {
+  db.purchases = toObjs(data.purchases).map(function(r) {
     return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
       producer:r['生産者']||'', vintage:r['ヴィンテージ']||'',
       qty:parseInt(r['本数'])||1, price:parseInt(r['単価(¥)'])||0,
       supplier:r['仕入先']||'', date:r['購入日'] };
   });
-  db.tastings = (data.tastings||[]).map(function(r) {
+  db.tastings = toObjs(data.tastings).map(function(r) {
     return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
       date:r['日付'], scene:r['シーン'], star:parseInt(r['評価(★)'])||0,
       appearance:{color:r['外観-色調'],clarity:r['外観-清澄']},
@@ -756,7 +771,7 @@ function mapSubData(data) {
       palate:{sweet:r['味わい-甘辛'],detail:r['味わい-詳細']},
       comment:r['総合コメント'] };
   });
-  db.drinking = (data.drinking||[]).map(function(r) {
+  db.drinking = toObjs(data.drinking).map(function(r) {
     return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
       producer:r['生産者']||'', vintage:r['ヴィンテージ']||'',
       date:r['飲んだ日'], qty:parseInt(r['本数'])||1,
@@ -809,7 +824,7 @@ function loadData(retryCount) {
   // ② 起動に要るのはセラーだけ。getSubData はここでは取らない。
   gasCall('getWinesOnly').then(function(data) {
     if (data.error) { alert('エラー: ' + data.error); showLoader(false); return; }
-    db.wines = (data.wines||[]).map(mapWine);
+    db.wines = toObjs(data.wines).map(mapWine);
     try { localStorage.setItem('winesCache', JSON.stringify(db.wines)); } catch(e) {}
     renderDash(); renderCellar(); showLoader(false);
     // 履歴が一度も取れていなければ、描画を終えてから裏で取りに行く

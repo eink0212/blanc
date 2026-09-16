@@ -77,23 +77,37 @@ function getSubData() {
     };
   } catch(e) { return { error: e.message }; }
 }
+/**
+ * シートを圧縮形 { h: [列名...], r: [[値...], ...] } で返す。
+ *
+ * 従来は行ごとに列名を持つオブジェクトの配列を返していた。
+ * 日本語の列名が全行ぶん繰り返されるため、購入履歴などでは
+ * JSON の半分近くが列名の重複だった（実測 360KB）。
+ * 列名を1回だけ送ることで転送量と解析時間を減らす。
+ *
+ * フロント側は新旧どちらの形式も受け取れるようにしてあるので、
+ * 貼り替えの前後どちらの状態でも動く。
+ */
 function sheetToObjects(sheet, headers) {
   var data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return [];
-  return data.slice(1).map(function(row) {
-    var obj = {};
-    headers.forEach(function(h, i) {
-      var v = row[i];
+  if (data.length <= 1) return { h: headers, r: [] };
+  var out = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var id = (row[0] === undefined || row[0] === null) ? '' : String(row[0]);
+    if (!id || id === 'undefined' || id === 'null') continue;
+    var rec = [];
+    for (var j = 0; j < headers.length; j++) {
+      var v = row[j];
       if (v instanceof Date) {
-        obj[h] = Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+        rec.push(Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd'));
       } else {
-        obj[h] = v !== undefined ? String(v) : '';
+        rec.push((v === undefined || v === null) ? '' : String(v));
       }
-    });
-    return obj;
-  }).filter(function(r) {
-    return r['ID'] && r['ID'] !== '' && r['ID'] !== 'undefined' && r['ID'] !== 'null';
-  });
+    }
+    out.push(rec);
+  }
+  return { h: headers, r: out };
 }
 
 function saveWine(wine) {
