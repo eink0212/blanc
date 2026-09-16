@@ -851,7 +851,7 @@ function renderCellar() {
   var wines = db.wines.filter(function(w) {
     if (q && w.name.toLowerCase().indexOf(q) < 0 && (w.producer||'').toLowerCase().indexOf(q) < 0) return false;
     // if (reg && w.region !== reg) return false; // 産地列廃止
-    if (stockFilter === 'in' && (w.stock||0) < 2) return false;
+    if (stockFilter === 'in' && (w.stock||0) < 1) return false;   // 「在庫あり」は1本以上
     if (stockFilter === 'low' && (w.stock||0) !== 1) return false;
     if (stockFilter === 'out' && (w.stock||0) !== 0) return false;
     return true;
@@ -948,6 +948,14 @@ function makeDetailPanel(w) {
   return h;
 }
 
+// 索引ボタンの文字と、グループ id の文字を必ず一致させる。
+// 従来は表示が p.charAt(0).toUpperCase()、id 側が /[a-zA-Z]/ なら大文字・
+// それ以外は 'Z' と別ロジックで、日本語の生産者名だと索引が無反応だった。
+function groupInitial(name) {
+  var c = (name || '').charAt(0);
+  return /[a-zA-Z]/.test(c) ? c.toUpperCase() : '#';
+}
+
 function renderCellarGroup(wines, cl, sortMode) {
   if (sortMode === 'price-asc' || sortMode === 'price-desc') {
     renderCellarList(wines, cl, sortMode);
@@ -964,7 +972,7 @@ function renderCellarGroup(wines, cl, sortMode) {
 
   var initials = [];
   groupOrder.forEach(function(p) {
-    var c = p.charAt(0).toUpperCase();
+    var c = groupInitial(p);
     if (initials.indexOf(c) < 0) initials.push(c);
   });
   initials.sort();
@@ -975,12 +983,12 @@ function renderCellarGroup(wines, cl, sortMode) {
   });
   h += '</div>';
 
-  groupOrder.forEach(function(producer) {
+  groupOrder.forEach(function(producer, gi) {
     var gWines = groups[producer];
-    var firstChar = producer.charAt(0);
-    var initial = /[a-zA-Z]/.test(firstChar) ? firstChar.toUpperCase() : 'Z';
-    var safeName = producer.replace(/[^a-zA-Z0-9]/g,'') || 'unknown';
-    var gid = 'group-' + initial + '-' + safeName;
+    // 非ASCII名は safeName が空→'unknown' になり id が全部衝突していた。
+    // 連番で必ず一意にする。
+    var initial = groupInitial(producer);
+    var gid = 'group-' + initial + '-' + gi;
     h += '<div class="producer-group" id="' + gid + '">';
     h += '<div class="producer-header" data-gid="' + gid + '" onclick="toggleProducerGroup(this.dataset.gid)">';
     h += '<div class="producer-name">' + (producer||'') + '</div>';
@@ -1064,12 +1072,30 @@ function toggleDetail(id) {
   if (r) r.classList.toggle('expanded', open);
 }
 
+// 在庫バッジだけを差し替える。該当DOMが無ければ従来どおり全体を描き直す。
+function updateStockBadge(id, stock) {
+  var row = document.getElementById('row-' + id);
+  var badge = row && row.querySelector('.wine-stock-badge');
+  if (!badge) { renderCellar(); return; }
+  badge.className = 'wine-stock-badge ' +
+    (stock === 0 ? 'badge-out' : stock === 1 ? 'badge-low' : 'badge-ok');
+  badge.textContent = stock === 0 ? '在庫なし' : stock === 1 ? '残1' : stock + '本';
+  var d = document.getElementById('detail-' + id);
+  if (d && d.innerHTML) {                 // 開いている詳細も作り直す
+    var w = null;
+    db.wines.forEach(function(x) { if (x.id === id) w = x; });
+    if (w) d.innerHTML = makeDetailPanel(w);
+  }
+}
+
 function doAdjust(id, delta) {
   showLoader(true);
   gasCall('adjustStock', {id:id, delta:delta}).then(function(r) {
     if (r.error) { alert(r.error); showLoader(false); return; }
     db.wines.forEach(function(w) { if (w.id === id) w.stock = r.stock; });
-    renderCellar(); renderDash(); showLoader(false);
+    // 全体を作り直すと詳細パネルが閉じ、スクロール位置も飛ぶ（棚卸しができない）
+    updateStockBadge(id, r.stock);
+    renderDash(); showLoader(false);
   }).catch(function(e) { alert(e.message); showLoader(false); });
 }
 
@@ -1114,16 +1140,13 @@ function drinkSelected() {
       var w = null; db.wines.forEach(function(x) { if (x.id === id) w = x; });
       if (!w || (w.stock||0) <= 0) return;
       return gasCall('adjustStock', {id:id, delta:-1}).then(function(r) {
-        if (r.error) return;
+        // return では次の .then が走ってしまい、サーバーに記録されていない
+        // 飲酒履歴が画面上にだけ追加されていた
+        if (r.error) throw new Error(w.name + ': ' + r.error);
         w.stock = r.stock;
         return gasCall('saveDrinking', {wineId:id, wineName:w.name, producer:w.producer||'', vintage:w.vintage||'', date:today, qty:1, price:w.price||0, memo:''});
       }).then(function(r) {
         db.drinking.push({ id:(r&&r.id)||'', wineId:id, wineName:w.name, date:today, qty:1, price:w.price||0, memo:'', producer:w.producer||'', vintage:w.vintage||'' });
-        if (w.stock <= 0) {
-          return gasCall('deleteWine', id).then(function() {
-            db.wines = db.wines.filter(function(x) { return x.id !== id; });
-          });
-        }
       });
     });
   });
@@ -1155,15 +1178,11 @@ function drinkWine(id) {
       date:today, qty:1, price:w.price||0, memo:'',
       producer: w.producer||'', vintage: w.vintage||''
     });
-    if (w.stock <= 0) {
-      return gasCall('deleteWine', id).then(function() {
-        db.wines = db.wines.filter(function(x) { return x.id !== id; });
-        renderCellar(); renderDash(); renderHistorique(); showLoader(false);
-        showPage('historique');
-      });
-    }
-    renderCellar(); renderDash(); renderHistorique(); showLoader(false);
-    showPage('historique');
+    // 在庫0でも行は残す。テイスティング等が wineId で参照しているため、
+    // 削除すると過去の記録から生産者・ヴィンテージが消える。
+    renderCellar(); renderDash(); showLoader(false);
+    // 「飲んだ」たびに画面が飛ぶと、セラーの前で2本目を探し直すことになる。
+    // renderHistorique は showPage 側でも呼ばれるので二重描画も解消。
   }).catch(function(e) { if (e !== 'stock_error') { alert(e.message||e); } showLoader(false); });
 }
 
@@ -1197,6 +1216,8 @@ function showAddWine(prefill) {
     if (el) el.value = (prefill && prefill[f]) || '';
   });
   document.getElementById('w-region').value = (prefill && prefill.region) || '';
+  document.getElementById('w-appellation').value = (prefill && prefill.appellation) || '';
+  document.getElementById('w-grape').value = (prefill && prefill.grape) || '';
   document.getElementById('w-volume').value = (prefill && prefill.volume) || 750;
   document.getElementById('w-price').value = (prefill && prefill.price) || '';
   document.getElementById('w-stock').value = (prefill && prefill.stock !== undefined) ? prefill.stock : 1;
@@ -1518,7 +1539,7 @@ function importScan() {
       if (existing) {
         return gasCall('adjustStock', {id:existing.id, delta:qty}).then(function(r) {
           if (!r.error) existing.stock = r.stock;
-          return gasCall('saveWine', Object.assign({}, existing, {price:price, producer:finalProducer, vintage:finalVintage, supplier:finalSupplier}));
+          return gasCall('saveWine', Object.assign({}, existing, {price:price, producer:finalProducer, vintage:finalVintage, supplier:finalSupplier, purchaseDate:finalDate}));
         }).then(function() {
           existing.price = price; savedWineId = existing.id;
           saveCategory(savedWineId, finalCategory);
@@ -1527,7 +1548,8 @@ function importScan() {
       } else {
         var nw = { name:finalName, vintage:finalVintage, color:'白', volume:it.volume||750,
           price:price, stock:qty, code:it.code||'', supplier:finalSupplier,
-          producer:finalProducer, region:'', appellation:'', grape:'', memo:'' };
+          producer:finalProducer, region:'', appellation:'', grape:'', memo:'',
+            purchaseDate:finalDate };
         return gasCall('saveWine', nw).then(function(r) {
           if (!r.error) { nw.id = r.id; db.wines.push(nw); savedWineId = r.id||''; }
           saveCategory(savedWineId, finalCategory);
@@ -1595,7 +1617,7 @@ function renderStorage() {
   groupOrder.sort(function(a,b) { return a.localeCompare(b); });
   var initials = [];
   groupOrder.forEach(function(p) {
-    var c = p.charAt(0).toUpperCase();
+    var c = groupInitial(p);
     if (initials.indexOf(c) < 0) initials.push(c);
   });
   initials.sort();
@@ -1604,12 +1626,10 @@ function renderStorage() {
     h += '<button class="alpha-btn" data-initial="' + c + '" onclick="scrollToStorageGroup(this.dataset.initial)">' + c + '</button>';
   });
   h += '</div>';
-  groupOrder.forEach(function(producer) {
+  groupOrder.forEach(function(producer, gi) {
     var gWines = groups[producer];
-    var firstChar = producer.charAt(0);
-    var initial = /[a-zA-Z]/.test(firstChar) ? firstChar.toUpperCase() : 'Z';
-    var safeName = producer.replace(/[^a-zA-Z0-9]/g,'') || 'unknown';
-    var gid = 'sgroup-' + initial + '-' + safeName;
+    var initial = groupInitial(producer);
+    var gid = 'sgroup-' + initial + '-' + gi;
     h += '<div class="producer-group" id="' + gid + '">';
     h += '<div class="producer-header" data-gid="' + gid + '" onclick="toggleStorageGroup(this.dataset.gid)">';
     h += '<div class="producer-name">' + (producer||'') + '</div>';
@@ -1817,7 +1837,7 @@ function renderHistorique() {
   groupOrder.sort(function(a,b) { return a.localeCompare(b); });
   var initials = [];
   groupOrder.forEach(function(p) {
-    var c = p.charAt(0).toUpperCase();
+    var c = groupInitial(p);
     if (initials.indexOf(c) < 0) initials.push(c);
   });
   initials.sort();
@@ -1826,12 +1846,10 @@ function renderHistorique() {
     h += '<button class="alpha-btn" data-initial="' + c + '" onclick="scrollToHistGroup(this.dataset.initial)">' + c + '</button>';
   });
   h += '</div>';
-  groupOrder.forEach(function(producer) {
+  groupOrder.forEach(function(producer, gi) {
     var gItems = groups[producer];
-    var firstChar = producer.charAt(0);
-    var initial = /[a-zA-Z]/.test(firstChar) ? firstChar.toUpperCase() : 'Z';
-    var safeName = producer.replace(/[^a-zA-Z0-9]/g,'') || 'unknown';
-    var gid = 'hgroup-' + initial + '-' + safeName;
+    var initial = groupInitial(producer);
+    var gid = 'hgroup-' + initial + '-' + gi;
     h += '<div class="producer-group" id="' + gid + '">';
     h += '<div class="producer-header" data-gid="' + gid + '" onclick="toggleHistGroup(this.dataset.gid)">';
     h += '<div class="producer-name">' + producer + '</div>';

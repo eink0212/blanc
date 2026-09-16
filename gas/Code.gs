@@ -148,8 +148,13 @@ function adjustStock(params) {
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(id)) {
         var newStock = Math.max(0, (parseInt(data[i][7]) || 0) + delta);
-        sheet.getRange(i+1, 8).setValue(newStock);
-        sheet.getRange(i+1, 14).setValue(new Date().toLocaleDateString('ja-JP'));
+        /* 従来は 14列目(N列)に書いていた。HEADERS.wines は13列までなので
+           N列は誰も読まない幽霊列になり、getDataRange の範囲も1列広がっていた。
+           更新日は L列(12)。H〜L をまとめて1回で書き、往復も1回に減らす。 */
+        sheet.getRange(i+1, 8, 1, 5).setValues([[
+          newStock, data[i][8], data[i][9], data[i][10],
+          new Date().toLocaleDateString('ja-JP')
+        ]]);
         return { ok: true, stock: newStock };
       }
     }
