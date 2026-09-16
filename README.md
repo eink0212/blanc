@@ -117,9 +117,9 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
 
 | 関数名 | 引数 | 内容 | フロントで使用 |
 |---|---|---|---|
-| `getAllData` | なし | 全データ取得（wines/purchases/tastings/drinking） | ○ |
-| `getWinesOnly` | なし | セラーデータのみ（高速起動用） | － |
-| `getSubData` | なし | purchases/tastings/drinking を取得 | － |
+| `getAllData` | なし | 全データ取得（wines/purchases/tastings/drinking） | －（分割ロードに移行） |
+| `getWinesOnly` | なし | セラーデータのみ（高速起動用） | ○（起動時） |
+| `getSubData` | なし | purchases/tastings/drinking を取得 | ○（起動後に裏で） |
 | `getNameMaster` | なし | 変換マスター取得 | ○ |
 | `saveWine` | wine オブジェクト | ワイン保存 | ○ |
 | `deleteWine` | id 文字列 | ワイン削除 | ○ |

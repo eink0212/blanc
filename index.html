@@ -562,8 +562,12 @@ body{min-height:100dvh;overscroll-behavior-y:none}
 
 <!-- ── Historique ── -->
 <div class="page" id="page-historique">
+  <div class="view-toggle" id="hist-view-toggle" style="margin-bottom:12px;">
+    <button class="view-btn active" id="hv-drinking" onclick="setHistView('drinking')">飲んだ</button>
+    <button class="view-btn" id="hv-purchase" onclick="setHistView('purchase')">買った</button>
+  </div>
   <div class="search-bar">
-    <input type="text" id="historique-search" placeholder="ワイン名・生産者..." oninput="debounced(renderHistorique)">
+    <input type="text" id="historique-search" placeholder="ワイン名・生産者・仕入先..." oninput="debounced(renderHistorique)">
     <select id="historique-sort" onchange="renderHistorique()" style="width:auto;font-size:10px;padding:4px 8px;">
       <option value="producer">生産者順</option>
       <option value="price-asc">単価 安い順</option>
@@ -576,6 +580,7 @@ body{min-height:100dvh;overscroll-behavior-y:none}
     <div class="sec-title">Historique</div>
     <div class="sec-count" id="historique-count"></div>
   </div>
+  <div id="historique-summary"></div>
   <div id="historique-list"></div>
 </div>
 
@@ -773,7 +778,9 @@ function loadData(retryCount) {
         price:parseInt(r['単価(¥)'])||0, memo:r['メモ']||'' };
     });
       _latestPurchaseByWine = null;
+      subLoaded = true;
       renderDash();   // Total と Historique 件数をここで確定させる
+      if (document.getElementById('page-historique').classList.contains('active')) renderHistorique();
     }).catch(function() {});
   }, function(e) {
     // 通信の失敗だけをここで捕まえる（描画の例外をリトライしないため）
@@ -1766,69 +1773,55 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 setTimeout(function() { loadData(); }, 0);
 
-function renderHistorique() {
-  var q = (document.getElementById('historique-search').value || '').toLowerCase();
-  var sortMode = document.getElementById('historique-sort') ? document.getElementById('historique-sort').value : 'producer';
-  var hl = document.getElementById('historique-list');
-  var hc = document.getElementById('historique-count');
-  if (!hl) return;
-  var items = db.drinking.filter(function(d) {
-    if (!q) return true;
-    return (d.wineName||'').toLowerCase().indexOf(q) >= 0 || (d.producer||'').toLowerCase().indexOf(q) >= 0;
+// ══ Historique：「飲んだ」と「買った」の2ビュー ══
+// 購入履歴(db.purchases)は今まで書き込むだけで、見る画面が無かった。
+var histView = 'drinking';   // 'drinking' | 'purchase'
+var subLoaded = false;       // getSubData が届いたか
+
+function setHistView(v) {
+  histView = v;
+  ['drinking','purchase'].forEach(function(k) {
+    var b = document.getElementById('hv-' + k);
+    if (b) b.classList.toggle('active', k === v);
   });
-  if (sortMode === 'price-asc') {
-    items.sort(function(a,b) { return (a.price||0)-(b.price||0); });
-    if (hc) hc.textContent = items.length + ' records';
-    hl.innerHTML = items.map(function(d) {
-      var memo = (d.memo||'');
-      var parts = memo.indexOf(' | ') >= 0 ? memo.split(' | ') : ['', memo];
-      var supplier = parts[0];
-      var comment = parts.slice(1).join(' | ');
-      var starMatch = comment.match(/^(★+)\s*/);
-      var starStr = starMatch ? starMatch[1] : '';
-      if (starMatch) comment = comment.replace(starMatch[0],'').trim();
-      return '<div class="group-wine-row" style="cursor:default;">' +
-        '<div style="flex:1;">' +
-        '<div class="wine-name-row"><span class="wine-name">' + (d.wineName||'') + '</span>' + (d.vintage ? '<span class="wine-vintage">' + d.vintage + '</span>' : '') + '</div>' +
-        '<div class="wine-meta"><span>' + (d.producer||'') + '</span><span>' + (d.date||'') + '</span>' +
-        (supplier ? '<span>' + supplier + '</span>' : '') + '</div>' +
-        (comment ? '<div style="font-size:11px;color:var(--text2);margin-top:3px;">' + (starStr ? '<span style="color:var(--gold);">' + starStr + '</span> ' : '') + comment + '</div>' : '') +
-        '</div>' +
-        '<div style="font-size:11px;color:var(--text2);flex-shrink:0;">' + (d.price ? '\u00A5' + Number(d.price).toLocaleString() : '') + '</div>' +
-        '</div>';
-    }).join('');
-    return;
+  var s = document.getElementById('historique-sort');
+  if (s) {
+    s.options[3].text = v === 'purchase' ? '購入日 古い順' : '飲んだ日 古い順';
+    s.options[4].text = v === 'purchase' ? '購入日 新しい順' : '飲んだ日 新しい順';
   }
-  if (sortMode === 'price-desc') {
-    items.sort(function(a,b) { return (b.price||0)-(a.price||0); });
-    if (hc) hc.textContent = items.length + ' records';
-    hl.innerHTML = items.map(function(d) {
-      var memo = (d.memo||'');
-      var parts = memo.indexOf(' | ') >= 0 ? memo.split(' | ') : ['', memo];
-      var supplier = parts[0];
-      var comment = parts.slice(1).join(' | ');
-      var starMatch = comment.match(/^(★+)\s*/);
-      var starStr = starMatch ? starMatch[1] : '';
-      if (starMatch) comment = comment.replace(starMatch[0],'').trim();
-      return '<div class="group-wine-row" style="cursor:default;">' +
-        '<div style="flex:1;">' +
-        '<div class="wine-name-row"><span class="wine-name">' + (d.wineName||'') + '</span>' + (d.vintage ? '<span class="wine-vintage">' + d.vintage + '</span>' : '') + '</div>' +
-        '<div class="wine-meta"><span>' + (d.producer||'') + '</span><span>' + (d.date||'') + '</span>' +
-        (supplier ? '<span>' + supplier + '</span>' : '') + '</div>' +
-        (comment ? '<div style="font-size:11px;color:var(--text2);margin-top:3px;">' + (starStr ? '<span style="color:var(--gold);">' + starStr + '</span> ' : '') + comment + '</div>' : '') +
-        '</div>' +
-        '<div style="font-size:11px;color:var(--text2);flex-shrink:0;">' + (d.price ? '\u00A5' + Number(d.price).toLocaleString() : '') + '</div>' +
-        '</div>';
-    }).join('');
-    return;
-  }
-  if (hc) hc.textContent = items.length + ' records';
-  if (!items.length) {
-    hl.innerHTML = '<div class="empty-state"><span class="empty-icon">📋</span><div class="empty-title">データがありません</div><div class="empty-sub">購入履歴をインポートしてください</div></div>';
-    return;
-  }
-  var groups = {};
-  var groupOrder = [];
+  renderHistorique();
+}
+
+function renderHistorique() {
+  if (histView === 'purchase') return renderPurchases();
+  return renderDrinking();
+}
+
+// 検索 → 並び替え。従来は price-asc / price-desc が丸ごと重複した
+// 描画ブロックを持ち、空状態チェックの手前で return していたため、
+// 価格順を選ぶと0件のとき真っ白になっていた。日付順は未実装だった。
+function histFilterSort(items, q, sortMode, dateKey) {
+  var out = items.filter(function(d) {
+    if (!q) return true;
+    return (d.wineName||'').toLowerCase().indexOf(q) >= 0 ||
+           (d.producer||'').toLowerCase().indexOf(q) >= 0 ||
+           (d.supplier||'').toLowerCase().indexOf(q) >= 0;
+  });
+  if (sortMode === 'price-asc')  out.sort(function(a,b) { return (a.price||0)-(b.price||0); });
+  if (sortMode === 'price-desc') out.sort(function(a,b) { return (b.price||0)-(a.price||0); });
+  if (sortMode === 'date-asc')   out.sort(function(a,b) { return (a[dateKey]||'').localeCompare(b[dateKey]||''); });
+  if (sortMode === 'date-desc')  out.sort(function(a,b) { return (b[dateKey]||'').localeCompare(a[dateKey]||''); });
+  return out;
+}
+
+function histEmpty(hl, title, sub) {
+  hl.innerHTML = '<div class="empty-state"><span class="empty-icon">📋</span>' +
+    '<div class="empty-title">' + title + '</div><div class="empty-sub">' + sub + '</div></div>';
+}
+
+// 生産者でグループ化して描く（producer モードのみ）
+function histGroupHtml(items, rowHtml) {
+  var groups = {}, groupOrder = [];
   items.forEach(function(d) {
     var key = d.producer || '（生産者不明）';
     if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
@@ -1848,37 +1841,139 @@ function renderHistorique() {
   h += '</div>';
   groupOrder.forEach(function(producer, gi) {
     var gItems = groups[producer];
-    var initial = groupInitial(producer);
-    var gid = 'hgroup-' + initial + '-' + gi;
+    var gid = 'hgroup-' + groupInitial(producer) + '-' + gi;
     h += '<div class="producer-group" id="' + gid + '">';
     h += '<div class="producer-header" data-gid="' + gid + '" onclick="toggleHistGroup(this.dataset.gid)">';
     h += '<div class="producer-name">' + producer + '</div>';
     h += '<div style="display:flex;align-items:center;gap:10px;"><div class="producer-stats">' + gItems.length + '本</div>';
     h += '<span id="harr-' + gid + '" class="producer-arr">▶</span></div></div>';
     h += '<div class="producer-wines" id="hwines-' + gid + '" style="display:none;">';
-    gItems.sort(function(a,b) { return (b.date||'').localeCompare(a.date||''); });
-    gItems.forEach(function(d) {
-      var stars = '';
-      for (var i = 0; i < (d.qty||0); i++) stars += '';
-      var memo = (d.memo||'');
-      var starMatch = memo.match(/^(★+)/);
-      var starStr = starMatch ? starMatch[1] : '';
-      var comment = starMatch ? memo.replace(starMatch[0],'').trim() : memo;
-      h += '<div class="group-wine-row" style="cursor:default;">';
-      h += '<div style="flex:1;">';
-      h += '<div class="wine-name-row"><span class="wine-name">' + (d.wineName||'') + '</span>' + (d.vintage ? '<span class="wine-vintage">' + d.vintage + '</span>' : '') + '</div>';
-      h += '<div class="wine-meta">';
-      h += '<span>' + (d.date||'') + '</span>';
-      if (d.supplier) h += '<span>' + d.supplier + '</span>';
-      if (d.price) h += '<span>\u00A5' + Number(d.price).toLocaleString() + '</span>';
-      h += '</div>';
-      if (comment) h += '<div style="font-size:11px;color:var(--text2);margin-top:3px;">' + (starStr ? '<span style="color:var(--gold);">' + starStr + '</span> ' : '') + comment + '</div>';
-      h += '</div>';
-      h += '</div>';
-    });
+    gItems.forEach(function(d) { h += rowHtml(d); });
     h += '</div></div>';
   });
-  hl.innerHTML = h;
+  return h;
+}
+
+function drinkRowHtml(d) {
+  var memo = (d.memo||'');
+  var starMatch = memo.match(/^(★+)/);
+  var starStr = starMatch ? starMatch[1] : '';
+  var comment = starMatch ? memo.replace(starMatch[0],'').trim() : memo;
+  var h = '<div class="group-wine-row" style="cursor:default;"><div style="flex:1;">';
+  h += '<div class="wine-name-row"><span class="wine-name">' + (d.wineName||'') + '</span>' +
+       (d.vintage ? '<span class="wine-vintage">' + d.vintage + '</span>' : '') + '</div>';
+  h += '<div class="wine-meta"><span>' + (d.date||'') + '</span>';
+  if (d.price) h += '<span>¥' + Number(d.price).toLocaleString() + '</span>';
+  h += '</div>';
+  if (comment) h += '<div style="font-size:11px;color:var(--text2);margin-top:3px;">' +
+    (starStr ? '<span style="color:var(--gold);">' + starStr + '</span> ' : '') + comment + '</div>';
+  return h + '</div></div>';
+}
+
+function purchaseRowHtml(p) {
+  var qty = p.qty || 1;
+  var sub = (p.price || 0) * qty;
+  var h = '<div class="group-wine-row" style="cursor:default;"><div style="flex:1;">';
+  h += '<div class="wine-name-row"><span class="wine-name">' + (p.wineName||'') + '</span>' +
+       (p.vintage ? '<span class="wine-vintage">' + p.vintage + '</span>' : '') + '</div>';
+  h += '<div class="wine-meta"><span>' + (p.date||'') + '</span>';
+  if (p.supplier) h += '<span>' + p.supplier + '</span>';
+  h += '<span>' + qty + '本</span>';
+  if (p.price) h += '<span>¥' + Number(p.price).toLocaleString() + ' / 本</span>';
+  h += '</div></div>';
+  h += '<div class="wine-right"><span style="font-family:var(--fd);font-size:15px;">¥' +
+       Number(sub).toLocaleString() + '</span></div>';
+  return h + '</div>';
+}
+
+function renderDrinking() {
+  var q = (document.getElementById('historique-search').value || '').toLowerCase();
+  var sortMode = document.getElementById('historique-sort') ? document.getElementById('historique-sort').value : 'producer';
+  var hl = document.getElementById('historique-list');
+  var hc = document.getElementById('historique-count');
+  var hs = document.getElementById('historique-summary');
+  if (!hl) return;
+  if (hs) hs.innerHTML = '';
+
+  var items = histFilterSort(db.drinking, q, sortMode, 'date');
+  if (hc) hc.textContent = items.length + ' records';
+  if (!items.length) {
+    return subLoaded
+      ? histEmpty(hl, 'データがありません', '「飲んだ」を押すとここに記録されます')
+      : histEmpty(hl, '読み込み中…', '飲酒履歴を取得しています');
+  }
+
+  if (sortMode === 'producer') {
+    hl.innerHTML = histGroupHtml(items, drinkRowHtml);
+  } else {
+    hl.innerHTML = items.map(drinkRowHtml).join('');
+  }
+}
+
+function renderPurchases() {
+  var q = (document.getElementById('historique-search').value || '').toLowerCase();
+  var sortMode = document.getElementById('historique-sort') ? document.getElementById('historique-sort').value : 'date-desc';
+  var hl = document.getElementById('historique-list');
+  var hc = document.getElementById('historique-count');
+  var hs = document.getElementById('historique-summary');
+  if (!hl) return;
+
+  var items = histFilterSort(db.purchases, q, sortMode, 'date');
+  if (hc) hc.textContent = items.length + ' records';
+
+  // 集計：本数・金額・仕入先別・月別
+  if (hs) {
+    var bottles = 0, total = 0, bySupplier = {}, byMonth = {};
+    items.forEach(function(p) {
+      var qty = p.qty || 1, sub = (p.price||0) * qty;
+      bottles += qty; total += sub;
+      var sup = p.supplier || '（仕入先不明）';
+      bySupplier[sup] = (bySupplier[sup] || 0) + sub;
+      var mo = (p.date || '').slice(0, 7);
+      if (mo) byMonth[mo] = (byMonth[mo] || 0) + sub;
+    });
+    var yen = function(n) { return '¥' + Number(n).toLocaleString(); };
+    var h = '<div class="stat-grid" style="margin-bottom:14px;">';
+    h += '<div class="stat-card"><div class="stat-label">Bouteilles</div><div class="stat-value">' + bottles + '<span>本</span></div></div>';
+    h += '<div class="stat-card"><div class="stat-label">Montant</div><div class="stat-value" style="font-size:22px;">' + yen(total) + '</div></div>';
+    h += '</div>';
+
+    var sups = Object.keys(bySupplier).sort(function(a,b) { return bySupplier[b] - bySupplier[a]; });
+    if (sups.length) {
+      h += '<div class="card" style="margin-bottom:14px;"><div class="card-title">仕入先別</div>';
+      sups.forEach(function(s) {
+        var pct = total ? Math.round(bySupplier[s] / total * 100) : 0;
+        h += '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:5px 0;border-bottom:0.5px solid var(--border);">' +
+             '<span style="font-size:13px;">' + s + '</span>' +
+             '<span style="font-size:13px;color:var(--text2);white-space:nowrap;">' + yen(bySupplier[s]) +
+             ' <span style="color:var(--text3);font-size:11px;">' + pct + '%</span></span></div>';
+      });
+      h += '</div>';
+    }
+    var months = Object.keys(byMonth).sort().reverse().slice(0, 6);
+    if (months.length > 1) {
+      h += '<div class="card" style="margin-bottom:14px;"><div class="card-title">月別（直近6ヶ月）</div>';
+      months.forEach(function(m) {
+        h += '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:0.5px solid var(--border);">' +
+             '<span style="font-size:13px;">' + m.replace('-', '年') + '月</span>' +
+             '<span style="font-size:13px;color:var(--text2);">' + yen(byMonth[m]) + '</span></div>';
+      });
+      h += '</div>';
+    }
+    hs.innerHTML = h;
+  }
+
+  if (!items.length) {
+    return subLoaded
+      ? histEmpty(hl, '購入履歴がありません', 'Reception から登録するとここに残ります')
+      : histEmpty(hl, '読み込み中…', '購入履歴を取得しています');
+  }
+
+  if (sortMode === 'producer') {
+    hl.innerHTML = histGroupHtml(items, purchaseRowHtml);
+  } else {
+    hl.innerHTML = items.map(purchaseRowHtml).join('');
+  }
 }
 
 function toggleHistGroup(gid) {
