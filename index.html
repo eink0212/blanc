@@ -700,21 +700,52 @@ var API_TOKEN = 'blanc-GSAIae2Dt40P';
 // gasCall の中で一括して判定する。
 var SUB_MUTATORS = ['saveTasting', 'deleteTasting', 'saveDrinking', 'savePurchase'];
 
+// GAS の応答は通常2〜6秒。これを超えたら打ち切る。
+// 無制限に待つと、返ってこなかったときローダーが出たまま固まる。
+var GAS_TIMEOUT_MS = 25000;
+
 function gasCall(fn, arg) {
-  return fetch(GAS_URL, {
+  var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var opts = {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     redirect: 'follow',
     body: JSON.stringify({ fn: fn, arg: arg, token: API_TOKEN })
-  }).then(function(r) {
-    if (!r.ok) throw new Error('通信エラー (HTTP ' + r.status + ')');
-    return r.json();
+  };
+  if (ctl) opts.signal = ctl.signal;
+
+  var req = fetch(GAS_URL, opts).then(function(r) {
+    if (!r.ok) throw new Error('通信エラー (HTTP ' + r.status + ') / ' + fn);
+    // r.json() は GAS が HTML を返したとき意味不明な例外になるので、
+    // 一度テキストで受けて、何が返ってきたかを言えるようにする。
+    return r.text().then(function(txt) {
+      try {
+        return JSON.parse(txt);
+      } catch (e) {
+        if (txt.indexOf('accounts.google.com') >= 0 || txt.indexOf('ServiceLogin') >= 0) {
+          throw new Error('GASのアクセス権が「全員」になっていません');
+        }
+        if (txt.indexOf('<!DOCTYPE') >= 0 || txt.indexOf('<html') >= 0) {
+          throw new Error('GASがJSON以外を返しました（デプロイを新バージョンで更新してください）');
+        }
+        throw new Error('応答を解析できません: ' + txt.slice(0, 60));
+      }
+    });
   }).then(function(res) {
     if (!res || res.ok !== true) throw new Error((res && res.error) || 'サーバーエラー');
     if (SUB_MUTATORS.indexOf(fn) >= 0) {
       try { localStorage.removeItem('subCache'); } catch(e) {}
     }
     return res.data;
+  });
+
+  return new Promise(function(resolve, reject) {
+    var timer = setTimeout(function() {
+      if (ctl) { try { ctl.abort(); } catch(e) {} }
+      reject(new Error('応答がありません（' + Math.round(GAS_TIMEOUT_MS/1000) + '秒待機） / ' + fn));
+    }, GAS_TIMEOUT_MS);
+    req.then(function(v) { clearTimeout(timer); resolve(v); },
+             function(e) { clearTimeout(timer); reject(e); });
   });
 }
 
@@ -723,6 +754,23 @@ var _debTimer = null;
 function debounced(fn) {
   clearTimeout(_debTimer);
   _debTimer = setTimeout(fn, 180);
+}
+
+// 失敗の理由を画面に残す。alert は閉じると何も残らず、
+// スマホでは何が起きたか伝えようがなかった。
+function showFatal(msg, detail) {
+  showLoader(false);
+  var cl = document.getElementById('cellar-list');
+  if (!cl) { alert(msg); return; }
+  cl.innerHTML =
+    '<div class="empty-state">' +
+      '<span class="empty-icon">⚠️</span>' +
+      '<div class="empty-title">' + msg + '</div>' +
+      (detail ? '<div class="empty-sub" style="word-break:break-all;margin-top:6px;">' + detail + '</div>' : '') +
+      '<div style="margin-top:16px;">' +
+        '<button class="btn-sm" onclick="location.reload()">再読み込み</button>' +
+      '</div>' +
+    '</div>';
 }
 
 function showLoader(v) {
@@ -782,6 +830,7 @@ function mapSubData(data) {
 
 // getSubData は 5〜6秒 / 360KB かかる。毎回の起動では取らず、
 // キャッシュを使い、Tasting / Historique を開いたときに一度だけ取りに行く。
+var _loaderGuard = null;  // ローダーが出たまま固まらないための保険
 var subLoaded = false;   // getSubData が一度でも届いたか
 var subFetching = false; // 取得中か（重複呼び出しを防ぐ）
 function ensureSubData() {
@@ -820,6 +869,15 @@ function loadData(retryCount) {
     } catch(e) {}
   }
   showLoader(!painted);
+  // 何らかの理由でどの経路も通らなかった場合の保険。
+  // ローダーが出たまま固まるのが一番困る。
+  clearTimeout(_loaderGuard);
+  _loaderGuard = setTimeout(function() {
+    var el = document.getElementById('globalLoader');
+    if (el && el.style.display !== 'none') {
+      showFatal('読み込みに時間がかかっています', '通信が完了しませんでした。電波の良い場所で再読み込みしてください。');
+    }
+  }, 40000);
 
   // ② 起動に要るのはセラーだけ。getSubData はここでは取らない。
   gasCall('getWinesOnly').then(function(data) {
@@ -831,11 +889,10 @@ function loadData(retryCount) {
     if (!subLoaded) setTimeout(ensureSubData, 1200);
   }, function(e) {
     if (retryCount < 3) { setTimeout(function() { loadData(retryCount + 1); }, 1500); }
-    else if (!painted) { alert('接続エラー: ' + e.message); showLoader(false); }
-    else { showLoader(false); }
+    else if (!painted) { showFatal('データを取得できませんでした', (e && e.message) || String(e)); }
+    else { showLoader(false); }   // キャッシュが出ているなら黙って諦める
   }).catch(function(e) {
-    showLoader(false);
-    alert('表示エラー: ' + ((e && e.message) || e));
+    showFatal('表示に失敗しました', (e && e.message) || String(e));
   });
 }
 
