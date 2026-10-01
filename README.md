@@ -34,6 +34,8 @@ blanc/
 
 ### 1. GAS 側
 
+初回の移行時の手順。**現在の更新は clasp で行う**（「更新のしかた」参照）。
+
 1. スプレッドシートの拡張機能 → Apps Script でエディタを開く。
 2. 既存の `Code.gs` の中身を**全選択して消し**、`gas/Code.gs` の内容を
    まるごと貼り付ける。旧版との違いは次の 3 点だけ。
@@ -151,13 +153,36 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
 | `saveWine` | wine オブジェクト | ワイン保存 | ○ |
 | `deleteWine` | id 文字列 | ワイン削除 | ○ |
 | `adjustStock` | `{id, delta}` | 在庫増減 | ○ |
-| `savePurchase` | purchase オブジェクト | 購入履歴保存 | ○ |
+| `savePurchase` | purchase オブジェクト | 購入履歴保存 | －（Reception は `importReception` に移行） |
+| `importReception` | `{batchId, items:[...]}` | 納品書の一括取り込み（購入履歴 → セラー） | ○ |
+| `checkReception` | `{items:[...]}` | 登録前の二重登録チェック（読み取りのみ） | ○ |
 | `saveTasting` | tasting オブジェクト | テイスティング保存 | ○ |
 | `deleteTasting` | id 文字列 | テイスティング削除 | ○ |
 | `saveDrinking` | drinking オブジェクト | 飲酒履歴保存 | ○ |
 
 `Code.gs` の `apiHandlers_()` に載っていない関数は実行されない。
 関数を増やしたら `apiHandlers_()` とこの表の両方に追加すること。
+
+### Reception（納品書JSONの取り込み）
+
+「登録する」は `importReception` を**1回だけ**呼ぶ。以前は1件ごとに
+`adjustStock` / `saveWine` / `savePurchase` を順番に呼んでいたため、途中の1回が
+遅れると残りが登録されず、押し直すと先頭から二重登録になっていた。
+
+- **購入履歴を先に書き、そのあとセラー。** 購入履歴は経費の記録なので優先する。
+  セラーの書き込みだけ失敗した場合は、購入履歴は残して結果に `cellarError` を返す
+- 同じ取り込みの中で「同じ日・同じ仕入先・同じワイン・同じ単価」は本数をまとめて1行
+- 単価・本数・購入日の無い行は登録しない（スキップとして返す）
+- 購入履歴シートの K・L 列に**取込ID・登録日時**を書く（見出しが無ければ自動で付ける）。
+  同じ取込ID が既にあれば書き込まずに `{duplicate:true}` を返すので、通信が途切れて
+  押し直しても二重にならない。アプリが読むのは従来どおり A〜J の10列
+- セラーは**名前 + ヴィンテージ + 生産者**が一致する行のうち一番下（最新）の行に在庫を足す。
+  一致しなければ新しい行を作る
+- 登録前に `checkReception` で「同じ日・同じ仕入先・同じワイン」が既に購入履歴にあるか調べ、
+  該当行は警告してチェックを外す。送信直前にももう一度調べ、該当があれば確認を出す
+- `LockService` で同時書き込みを防ぐ
+- 購入履歴の行はアプリからは追加するだけで、消したり書き換えたりしない
+  （「飲んだ」「削除」「寺田へ」を押しても購入履歴は変わらない）
 
 `callClaudeAPI` は API に公開していない（フロントからは呼んでおらず、
 公開すると誰でも API キーを消費できてしまうため）。
@@ -169,8 +194,15 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
 - **フロントを直した** … `index.html` を編集して push。加えて `sw.js` の
   `CACHE_VERSION` を上げる（`blanc-v1` → `blanc-v2`）。上げ忘れると
   古いキャッシュが残って更新が反映されない。
-- **GAS を直した** … エディタで編集後、「デプロイを管理」から
-  **既存デプロイを新バージョンで更新**（新規デプロイを作らない）。
+- **GAS を直した** … clasp で反映する（`.clasp.json` がこのフォルダにある。対象は `gas/` の2ファイルだけ）。
+  ```
+  clasp push                                   # gas/Code.gs と appsscript.json をアップロード
+  clasp create-version "変更内容"               # 版を作る（表示された版番号を控える）
+  clasp redeploy AKfycbw3Ay_CQ524GsfQ4NZWp5t5A0vYKvMLjI3io4y69ZQNpLc4Ow3njycvVymDZxSfESBj -V <版番号>
+  ```
+  **既存デプロイを更新する**（新規デプロイを作るとURLが変わる）。
+  `clasp push` は GAS 側にあってここに無いファイルを消すので、GAS エディタで直接ファイルを足さないこと。
+  反映の順番は GAS → フロント（push）。
 
 ---
 

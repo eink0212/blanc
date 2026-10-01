@@ -17,9 +17,9 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- xlsx は Terada タブの取込専用。defer にして起動を止めない -->
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400;1,500&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<!-- xlsx(約900KB)は Terada の Excel 取込でしか使わないので、ファイルを選んだときに読み込む（loadXlsx） -->
+<!-- フォントCSSは表示を止めないよう後から適用する。電波が悪いと、このCSS待ちで画面が真っ白のままになっていた -->
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400;1,500&family=Jost:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
 :root{
   --stone-50:#FAFAF7;--stone-100:#F4F3EE;--stone-200:#E8E6DC;--stone-300:#D4D0C2;
@@ -698,13 +698,15 @@ var API_TOKEN = 'blanc-GSAIae2Dt40P';
 // 履歴(purchases/tastings/drinking)を書き換える関数。
 // これらを呼んだら subCache を捨てる。呼び出し側に散らすと漏れるので
 // gasCall の中で一括して判定する。
-var SUB_MUTATORS = ['saveTasting', 'deleteTasting', 'saveDrinking', 'savePurchase'];
+var SUB_MUTATORS = ['saveTasting', 'deleteTasting', 'saveDrinking', 'savePurchase', 'importReception'];
 
 // GAS の応答は通常2〜6秒。これを超えたら打ち切る。
 // 無制限に待つと、返ってこなかったときローダーが出たまま固まる。
+// 一括書き込みなど重い呼び出しは第3引数で延ばす。
 var GAS_TIMEOUT_MS = 25000;
 
-function gasCall(fn, arg) {
+function gasCall(fn, arg, timeoutMs) {
+  var limit = timeoutMs || GAS_TIMEOUT_MS;
   var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   var opts = {
     method: 'POST',
@@ -732,7 +734,12 @@ function gasCall(fn, arg) {
       }
     });
   }).then(function(res) {
-    if (!res || res.ok !== true) throw new Error((res && res.error) || 'サーバーエラー');
+    if (!res || res.ok !== true) {
+      var msg = (res && res.error) || 'サーバーエラー';
+      // index.html だけ新しく、GAS 側の貼り替え・再デプロイがまだの状態
+      if (msg.indexOf('未知の関数') >= 0) msg = 'GAS側の更新が必要です（Code.gs を貼り替えて新バージョンでデプロイ） / ' + fn;
+      throw new Error(msg);
+    }
     if (SUB_MUTATORS.indexOf(fn) >= 0) {
       try { localStorage.removeItem('subCache'); } catch(e) {}
     }
@@ -742,8 +749,8 @@ function gasCall(fn, arg) {
   return new Promise(function(resolve, reject) {
     var timer = setTimeout(function() {
       if (ctl) { try { ctl.abort(); } catch(e) {} }
-      reject(new Error('応答がありません（' + Math.round(GAS_TIMEOUT_MS/1000) + '秒待機） / ' + fn));
-    }, GAS_TIMEOUT_MS);
+      reject(new Error('応答がありません（' + Math.round(limit/1000) + '秒待機） / ' + fn));
+    }, limit);
     req.then(function(v) { clearTimeout(timer); resolve(v); },
              function(e) { clearTimeout(timer); reject(e); });
   });
@@ -771,6 +778,13 @@ function showFatal(msg, detail) {
         '<button class="btn-sm" onclick="location.reload()">再読み込み</button>' +
       '</div>' +
     '</div>';
+}
+
+// 端末の日付を yyyy-mm-dd で返す。
+// toISOString() は UTC なので、日本時間の 0〜9時に使うと前日の日付になっていた。
+function todayStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
 }
 
 function showLoader(v) {
@@ -804,13 +818,15 @@ function mapWine(r) {
     supplier:r['仕入先']||'', purchaseDate:pd };
 }
 
+function mapPurchase(r) {
+  return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
+    producer:r['生産者']||'', vintage:r['ヴィンテージ']||'',
+    qty:parseInt(r['本数'])||1, price:parseInt(r['単価(¥)'])||0,
+    supplier:r['仕入先']||'', date:r['購入日'] };
+}
+
 function mapSubData(data) {
-  db.purchases = toObjs(data.purchases).map(function(r) {
-    return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
-      producer:r['生産者']||'', vintage:r['ヴィンテージ']||'',
-      qty:parseInt(r['本数'])||1, price:parseInt(r['単価(¥)'])||0,
-      supplier:r['仕入先']||'', date:r['購入日'] };
-  });
+  db.purchases = toObjs(data.purchases).map(mapPurchase);
   db.tastings = toObjs(data.tastings).map(function(r) {
     return { id:r['ID'], wineId:r['ワインID'], wineName:r['ワイン名'],
       date:r['日付'], scene:r['シーン'], star:parseInt(r['評価(★)'])||0,
@@ -1243,7 +1259,7 @@ function drinkSelected() {
   if (!ids.length) { alert('ワインを選択してください'); return; }
   if (!confirm(ids.length + '本を飲みましたか？\n在庫が各1本減り、飲酒履歴に記録されます。')) return;
   showLoader(true);
-  var today = new Date().toISOString().slice(0, 10);
+  var today = todayStr();
   var chain = Promise.resolve();
   ids.forEach(function(id) {
     chain = chain.then(function() {
@@ -1277,7 +1293,7 @@ function drinkWine(id) {
   if ((w.stock||0) <= 0) { alert('在庫がありません'); return; }
   if (!confirm('「' + w.name + '」を1本飲みましたか？\n在庫が1本減り、飲酒履歴に記録されます。')) return;
   showLoader(true);
-  var today = new Date().toISOString().slice(0, 10);
+  var today = todayStr();
   gasCall('adjustStock', {id:id, delta:-1}).then(function(r) {
     if (r.error) { alert(r.error); showLoader(false); return Promise.reject('stock_error'); }
     w.stock = r.stock;
@@ -1386,7 +1402,7 @@ function setStar(v) {
 
 function showAddTasting() {
   document.getElementById('t-edit-id').value = '';
-  document.getElementById('t-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('t-date').value = todayStr();
   ['scene','comment','color','clarity','nose1','nose2','taste-sweet','taste-detail'].forEach(function(f) {
     var el = document.getElementById('t-' + f); if (el) el.value = '';
   });
@@ -1546,45 +1562,67 @@ function lookupProducer(text) {
   return found;
 }
 
-function ensureNameMaster() {
-  if (nameMaster.wine && nameMaster.wine.length) return;
-  gasCall('getNameMaster').then(function(r) {
+// 変換マスターは端末に保存したものを使い、取り込みのたびに裏で最新化する。
+// 従来は一度保存すると二度と取り直さず、シート側でマスターを足しても反映されなかった。
+// また初回は取得を待たずに照合していたため、何も変換されなかった。
+function fetchNameMaster() {
+  return gasCall('getNameMaster').then(function(r) {
     if (r && !r.error) {
       nameMaster = { domaine: r.domaine||[], wine: r.wine||[] };
       try { localStorage.setItem('nameMaster', JSON.stringify(nameMaster)); } catch(e) {}
     }
-  }).catch(function() {});
+  });
 }
 
+var importBatchId = null;   // 押し直しで二重登録しないための受付番号
+
 function parseJsonPaste() {
-  ensureNameMaster();
   var text = document.getElementById('jsonPaste').value.trim();
   var status = document.getElementById('scanStatus');
-  var results = document.getElementById('scanResults');
   if (!text) { alert('JSONを貼り付けてください'); return; }
+  var parsed;
   try {
-    var parsed = JSON.parse(text);
-    var items, defaultDate;
+    parsed = JSON.parse(text);
+  } catch(err) {
+    status.innerHTML = '<div class="status-msg error">JSONの形式が正しくありません: ' + err.message + '</div>';
+    return;
+  }
+  var fetching = fetchNameMaster();
+  if (nameMaster.wine && nameMaster.wine.length) {
+    fetching.catch(function() {});
+    renderScanItems(parsed);
+    return;
+  }
+  showLoader(true);
+  fetching.catch(function() {}).then(function() { showLoader(false); renderScanItems(parsed); });
+}
+
+function renderScanItems(parsed) {
+  var status = document.getElementById('scanStatus');
+  var results = document.getElementById('scanResults');
+  try {
+    var items, defaultDate, defaultSupplier = '';
     if (Array.isArray(parsed)) {
-      items = parsed; defaultDate = new Date().toISOString().slice(0,10);
+      items = parsed; defaultDate = todayStr();
     } else if (parsed && parsed.items && Array.isArray(parsed.items)) {
-      items = parsed.items; defaultDate = parsed.date || new Date().toISOString().slice(0,10);
+      items = parsed.items; defaultDate = parsed.date || todayStr(); defaultSupplier = parsed.supplier || '';
     } else {
       throw new Error('正しい形式で貼り付けてください');
     }
+    importBatchId = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     scanItems = items.map(function(it) { return Object.assign({}, it); });
-    status.innerHTML = '<div class="status-msg success">' + items.length + ' 件読み込みました。名称・カテゴリを確認して追加してください。</div>';
+    status.innerHTML = '<div class="status-msg success">' + items.length + ' 件読み込みました。名称・単価・購入日を確認して登録してください。</div>';
     var h = '<div style="background:var(--bg2);border:0.5px solid var(--border);padding:10px 14px;margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
       '<span style="font-size:11px;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;">購入日（一括）</span>' +
       '<input type="date" id="bulk-date" value="' + defaultDate + '" style="width:auto;padding:5px 8px;font-size:12px;">' +
       '<button class="btn-sm" onclick="applyBulkDate()">全件に適用</button>' +
-
       '</div><div style="margin-top:8px;">';
     scanItems.forEach(function(it, i) {
       var converted = lookupName(it.name);
       var displayName = converted || it.name || '';
       var convertedProducer = lookupProducer(it.producer);
       var displayProducer = convertedProducer || it.producer || '';
+      var qty = it.qty || it.quantity || 1;
       var badge = (converted || convertedProducer)
         ? '<span style="font-size:9px;background:var(--sage-light);color:var(--sage);border:0.5px solid rgba(122,140,114,0.3);padding:1px 6px;margin-left:6px;">マスター変換</span>'
         : '<span style="font-size:9px;background:var(--gold-light);color:var(--gold-dark);border:0.5px solid rgba(200,168,75,0.3);padding:1px 6px;margin-left:6px;">そのまま</span>';
@@ -1593,21 +1631,22 @@ function parseJsonPaste() {
         '<div>' +
         '<div style="font-size:10px;color:var(--text3);margin-bottom:3px;">' + (it.name||'') + badge + '</div>' +
         '<input type="text" id="sn-' + i + '" value="' + displayName.replace(/"/g, '&quot;') + '" style="font-size:13px;letter-spacing:0.03em;margin-bottom:4px;">' +
+        '<div id="swarn-' + i + '" style="font-size:11px;"></div>' +
         '</div>' +
         '<div class="scan-field"><label>Vt</label><input type="number" id="sv-' + i + '" value="' + (it.vintage||'') + '" style="width:60px;" placeholder="年"></div>' +
-        '<div class="scan-field"><label>仕入先</label><input type="text" id="ss-' + i + '" value="' + ((it.supplier||'').replace(/"/g, '&quot;')) + '" style="width:80px;"></div>' +
-        '<div class="scan-field"><label>本数</label><input type="number" id="sq-' + i + '" value="' + (it.qty||1) + '" min="1"></div>' +
-        '<div class="scan-field"><label>単価(円)</label><input type="number" id="sp-' + i + '" value="' + (it.price||0) + '"></div>' +
+        '<div class="scan-field"><label>仕入先</label><input type="text" id="ss-' + i + '" value="' + ((it.supplier||defaultSupplier).replace(/"/g, '&quot;')) + '" style="width:80px;"></div>' +
+        '<div class="scan-field"><label>本数</label><input type="number" id="sq-' + i + '" value="' + qty + '" min="1"></div>' +
+        '<div class="scan-field"><label>単価(税込)</label><input type="number" id="sp-' + i + '" value="' + (it.price||'') + '" placeholder="必須"></div>' +
         '<div class="scan-field"><label>購入日</label><input type="date" id="sdate-' + i + '" value="' + (it.date||defaultDate) + '" style="width:130px;font-size:11px;"></div>' +
-        '<input type="hidden" id="scat-' + i + '" value="cave">' +
-        '<div><input type="checkbox" id="sc-' + i + '" checked style="width:auto;margin-right:4px;"><label for="sc-' + i + '" style="font-size:10px;">追加</label></div>' +
+        '<div><input type="checkbox" id="sc-' + i + '" checked style="width:auto;margin-right:4px;"><label for="sc-' + i + '" style="font-size:10px;">登録</label></div>' +
         '</div>';
     });
     h += '<div class="btn-row">' +
       '<button class="btn btn-outline" onclick="clearScan()">キャンセル</button>' +
-      '<button class="btn btn-primary" onclick="importScan()">セラーに追加</button>' +
+      '<button class="btn btn-primary" onclick="importScan()">登録する</button>' +
       '</div></div>';
     results.innerHTML = h;
+    checkScanDuplicates(true);
   } catch(err) {
     status.innerHTML = '<div class="status-msg error">エラー: ' + err.message + '</div>';
   }
@@ -1621,59 +1660,124 @@ function applyBulkDate() {
   while (document.getElementById('sdate-' + i)) { document.getElementById('sdate-' + i).value = val; i++; }
 }
 
-
-
 function clearScan() {
   var r = document.getElementById('scanResults'); if (r) r.innerHTML = '';
   var s = document.getElementById('scanStatus'); if (s) s.innerHTML = '';
   var jp = document.getElementById('jsonPaste'); if (jp) jp.value = '';
 }
 
-function importScan() {
-  showLoader(true);
-  var chain = Promise.resolve();
-  scanItems.forEach(function(it, i) {
-    chain = chain.then(function() {
-      var cb = document.getElementById('sc-' + i);
-      if (!cb || !cb.checked) return;
-      var finalName = document.getElementById('sn-' + i) ? document.getElementById('sn-' + i).value.trim() : (it.name||'');
-      var finalProducer = document.getElementById('sd-' + i) ? document.getElementById('sd-' + i).value.trim() : (it.producer||'');
-      var finalVintage = document.getElementById('sv-' + i) ? document.getElementById('sv-' + i).value.trim() : (it.vintage||'');
-      var finalSupplier = document.getElementById('ss-' + i) ? document.getElementById('ss-' + i).value.trim() : (it.supplier||'');
-      var finalDate = document.getElementById('sdate-' + i) ? document.getElementById('sdate-' + i).value : new Date().toLocaleDateString('ja-JP');
-      var finalCategory = document.getElementById('scat-' + i) ? document.getElementById('scat-' + i).value : 'cave';
-      var qty = parseInt((document.getElementById('sq-' + i)||{}).value)||1;
-      var price = parseInt((document.getElementById('sp-' + i)||{}).value)||0;
-      var existing = null; db.wines.forEach(function(w) { if (w.name === finalName) existing = w; });
-      var savedWineId = '', savedWineName = finalName;
-      if (existing) {
-        return gasCall('adjustStock', {id:existing.id, delta:qty}).then(function(r) {
-          if (!r.error) existing.stock = r.stock;
-          return gasCall('saveWine', Object.assign({}, existing, {price:price, producer:finalProducer, vintage:finalVintage, supplier:finalSupplier, purchaseDate:finalDate}));
-        }).then(function() {
-          existing.price = price; savedWineId = existing.id;
-          saveCategory(savedWineId, finalCategory);
-          return gasCall('savePurchase', {wineId:savedWineId, wineName:savedWineName, producer:finalProducer, vintage:finalVintage, supplier:finalSupplier, qty:qty, price:price, date:finalDate});
-        });
+// 画面の入力欄から、登録に送る形の1行を読み取る
+function readScanRow(i) {
+  var val = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  var it = scanItems[i] || {};
+  return { name:val('sn-' + i), producer:val('sd-' + i), vintage:val('sv-' + i),
+    supplier:val('ss-' + i), date:val('sdate-' + i),
+    qty:parseInt(val('sq-' + i))||0, price:parseInt(val('sp-' + i))||0,
+    volume:it.volume||750, code:it.code||'' };
+}
+
+// 同じ日・同じ仕入先・同じワインが既に購入履歴にあるか調べて、行に警告を出す。
+// 最初の表示では該当行のチェックを外す（二重登録を防ぐため。登録するならチェックし直す）。
+// 戻り値: 警告の出た行番号の配列
+function checkScanDuplicates(uncheck) {
+  var idx = scanItems.map(function(_, i) { return i; });
+  var rows = idx.map(readScanRow);
+  return gasCall('checkReception', { items: rows }).then(function(r) {
+    var hits = [];
+    (r.matches || []).forEach(function(m, i) {
+      var w = document.getElementById('swarn-' + i);
+      if (!w) return;
+      if (m.length) {
+        hits.push(i);
+        var qty = m.reduce(function(s, x) { return s + (parseInt(x.qty) || 0); }, 0);
+        w.innerHTML = '<span style="color:#8C3020;">⚠ 同じ日・同じ仕入先で登録済み（' + qty + '本）' +
+          (uncheck ? '。チェックを外しました' : '') + '</span>';
+        if (uncheck) { var cb = document.getElementById('sc-' + i); if (cb) cb.checked = false; }
       } else {
-        var nw = { name:finalName, vintage:finalVintage, color:'白', volume:it.volume||750,
-          price:price, stock:qty, code:it.code||'', supplier:finalSupplier,
-          producer:finalProducer, region:'', appellation:'', grape:'', memo:'',
-            purchaseDate:finalDate };
-        return gasCall('saveWine', nw).then(function(r) {
-          if (!r.error) { nw.id = r.id; db.wines.push(nw); savedWineId = r.id||''; }
-          saveCategory(savedWineId, finalCategory);
-          return gasCall('savePurchase', {wineId:savedWineId, wineName:savedWineName, producer:finalProducer, vintage:finalVintage, supplier:finalSupplier, qty:qty, price:price, date:finalDate});
-        });
+        w.innerHTML = '';
       }
     });
+    return hits;
+  }).catch(function() { return []; });   // チェックできなくても登録自体は止めない
+}
+
+// 1回の通信でまとめて登録する（GAS の importReception）。
+// 購入履歴を先に書き、そのあとセラーを更新する。結果は行ごとと合計で表示する。
+function importScan() {
+  var sent = [];   // 送る行の元の行番号
+  var items = [];
+  var missing = [];
+  scanItems.forEach(function(_, i) {
+    var cb = document.getElementById('sc-' + i);
+    if (!cb || !cb.checked) return;
+    var row = readScanRow(i);
+    if (!row.name || !row.price || !row.qty || !row.date) missing.push((row.name || '(名前なし)') + (row.price ? '' : '：単価なし'));
+    sent.push(i); items.push(row);
   });
-  chain.then(function() {
-    var s = document.getElementById('scanStatus'); if (s) s.innerHTML = '<div class="status-msg success">セラーに追加しました。</div>';
-    var r = document.getElementById('scanResults'); if (r) r.innerHTML = '';
+  if (!items.length) { alert('登録する行がありません'); return; }
+  if (missing.length && !confirm('次の行は単価・本数・購入日のどれかが無いため登録されません。\n\n' + missing.join('\n') + '\n\n残りを登録しますか？')) return;
+  if (!importBatchId) importBatchId = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+  showLoader(true);
+  // 送る直前にもう一度だけ二重登録を確かめる（チェックし直した行や、日付を変えた行のため）
+  checkScanDuplicates(false).then(function(hits) {
+    var dupNames = hits.filter(function(i) { return sent.indexOf(i) >= 0; })
+      .map(function(i) { return readScanRow(i).name; });
+    if (dupNames.length) {
+      showLoader(false);
+      if (!confirm('次のワインは、同じ日・同じ仕入先で既に購入履歴にあります。\n\n' + dupNames.join('\n') + '\n\nそれでも登録しますか？')) return null;
+      showLoader(true);
+    }
+    return gasCall('importReception', { batchId:importBatchId, items:items }, 60000);
+  }).then(function(r) {
+    if (!r) return;
+    if (r.error) { alert('エラー: ' + r.error + '\n\n何も登録されていません。'); showLoader(false); return; }
+    importBatchId = null;
+    var s = document.getElementById('scanStatus');
+    var res = document.getElementById('scanResults');
     var jp = document.getElementById('jsonPaste'); if (jp) jp.value = '';
+    if (r.duplicate) {
+      // 前回、通信が切れた送信が実は届いていた。最新の状態を取り直す。
+      if (s) s.innerHTML = '<div class="status-msg success">前回の送信で登録済みでした（二重には登録していません）。最新の内容を読み込みます。</div>';
+      if (res) res.innerHTML = '';
+      subLoaded = false;
+      loadData(1);
+      return;
+    }
+    toObjs(r.wines).map(mapWine).forEach(function(w) {
+      var idx = -1;
+      db.wines.forEach(function(x, i) { if (x.id === w.id) idx = i; });
+      if (idx >= 0) db.wines[idx] = Object.assign({}, db.wines[idx], w);
+      else db.wines.push(w);
+    });
+    db.purchases = db.purchases.concat(toObjs(r.purchases).map(mapPurchase));
+    _latestPurchaseByWine = null;
+    try { localStorage.setItem('winesCache', JSON.stringify(db.wines)); } catch(e) {}
+
+    var skipped = 0;
+    var lines = scanItems.map(function(_, i) {
+      var row = readScanRow(i);
+      var label = (row.name || '(名前なし)') + (row.vintage ? ' ' + row.vintage : '') + ' ×' + (row.qty || 0);
+      var k = sent.indexOf(i);
+      var st;
+      if (k < 0) st = '<span style="color:var(--text3);">登録しなかった</span>';
+      else {
+        var x = (r.results || [])[k] || {};
+        if (x.status !== 'ok') { skipped++; st = '<span style="color:#8C3020;">スキップ（' + (x.reason || '不明') + '）</span>'; }
+        else st = '購入履歴 ✓' + (x.merged ? '（同じ日・同じワインを1行に）' : '') + ' ／ セラー ' +
+          (r.cellarError ? '<span style="color:#8C3020;">未更新</span>' : (x.cellar === 'new' ? '新規' : '在庫を追加'));
+      }
+      return '<div style="font-size:12px;padding:6px 0;border-bottom:0.5px solid var(--border);">' + label + '<br>' + st + '</div>';
+    });
+    if (res) res.innerHTML = '<div style="margin-top:12px;">' + lines.join('') + '</div>';
+    if (s) s.innerHTML = '<div class="status-msg success">購入履歴：' + r.purchasesAdded + ' 件登録 ／ セラー：新規 ' + r.cellarNew +
+      ' 件・在庫を追加 ' + r.cellarAdded + ' 件' + (skipped ? ' ／ スキップ ' + skipped + ' 件' : '') + '</div>' +
+      (r.cellarError ? '<div class="status-msg error">購入履歴は登録済みですが、セラーの更新に失敗しました：' + r.cellarError + '</div>' : '');
     renderCellar(); renderDash(); showLoader(false);
-  }).catch(function(e) { alert('エラー: ' + e.message); showLoader(false); });
+  }).catch(function(e) {
+    showLoader(false);
+    alert('エラー: ' + e.message + '\n\n内容はそのまま残っています。電波の良い場所でもう一度「登録する」を押してください（二重に登録されることはありません）。');
+  });
 }
 
 function renderStorage() {
@@ -1807,54 +1911,78 @@ function addTastingFromStorage(wineId) {
   }, 60);
 }
 
+var _xlsxLoading = null;
+function loadXlsx() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve();
+  if (!_xlsxLoading) {
+    _xlsxLoading = new Promise(function(resolve, reject) {
+      var sc = document.createElement('script');
+      sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      sc.onload = resolve;
+      sc.onerror = function() {
+        _xlsxLoading = null;
+        reject(new Error('Excel読み込み用ライブラリを取得できませんでした。通信状況を確認してください。'));
+      };
+      document.head.appendChild(sc);
+    });
+  }
+  return _xlsxLoading;
+}
+
 function handleXlsxUpload(e) {
   var file = e.target.files[0]; if (!file) return;
   var status = document.getElementById('importStatus');
   status.innerHTML = '<div class="status-msg loading">読み込み中...</div>';
   var reader = new FileReader();
   reader.onload = function(ev) {
-    try {
-      if (typeof XLSX === 'undefined') throw new Error('ライブラリ読み込み中です。少し待ってください。');
-      var wb = XLSX.read(ev.target.result, {type:'array'});
-      var ws = wb.Sheets[wb.SheetNames[0]];
-      var rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-      var headerIdx = -1;
-      for (var i = 0; i < rows.length; i++) {
-        var found = false;
-        rows[i].forEach(function(c) { if (String(c).trim() === 'WINE ID') found = true; });
-        if (found) { headerIdx = i; break; }
-      }
-      if (headerIdx < 0) throw new Error('ヘッダー行が見つかりません');
-      var headers = rows[headerIdx].map(function(h) { return String(h).trim(); });
-      var col = function(name) { return headers.indexOf(name); };
-      var wines = [];
-      for (var j = headerIdx + 1; j < rows.length; j++) {
-        var r = rows[j];
-        var wineId = String(r[col('WINE ID')]||'').trim();
-        if (!wineId || wineId === 'WINE ID') continue;
-        wines.push({ wineId:wineId, name:String(r[col('WINE NAME')]||'').trim(),
-          country:String(r[col('COUNTRY')]||'').trim(), area:String(r[col('AREA')]||'').trim(),
-          vintage:r[col('VINTAGE')] ? String(r[col('VINTAGE')]).trim() : '',
-          producer:String(r[col('PRODUCER')]||'').trim(), volume:parseInt(r[col('VOLUME')])||750,
-          purchaseDate:String(r[col('PURCHASE DATE')]||'').trim(),
-          retailer:String(r[col('RETAILER')]||'').trim(),
-          purchase:String(r[col('PURCHASE')]||'').trim(), currency:String(r[col('CURRENCY')]||'').trim(),
-          inboundDate:String(r[col('INBOUND DATE')]||'').trim(),
-          outboundDate:String(r[col('OUTBOUND DATE')]||'').trim(),
-          durationToDrink:String(r[col('DURATION TO DRINK')]||'').trim(),
-          note:String(r[col('NOTE')]||'').trim() });
-      }
-      if (!wines.length) throw new Error('データが見つかりませんでした');
-      storageWines = wines;
-      localStorage.setItem('storageWines', JSON.stringify(storageWines));
-      status.innerHTML = '<div class="status-msg success">' + wines.length + ' 本を読み込みました（' + new Date().toLocaleDateString('ja-JP') + ' 更新）</div>';
-      renderStorage(); renderDash();
-    } catch(err) {
+    loadXlsx().then(function() { parseXlsx(ev.target.result); }, function(err) {
       status.innerHTML = '<div class="status-msg error">エラー: ' + err.message + '</div>';
-    }
+    });
   };
   reader.readAsArrayBuffer(file);
   e.target.value = '';
+}
+
+function parseXlsx(buf) {
+  var status = document.getElementById('importStatus');
+  try {
+    var wb = XLSX.read(buf, {type:'array'});
+    var ws = wb.Sheets[wb.SheetNames[0]];
+    var rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    var headerIdx = -1;
+    for (var i = 0; i < rows.length; i++) {
+      var found = false;
+      rows[i].forEach(function(c) { if (String(c).trim() === 'WINE ID') found = true; });
+      if (found) { headerIdx = i; break; }
+    }
+    if (headerIdx < 0) throw new Error('ヘッダー行が見つかりません');
+    var headers = rows[headerIdx].map(function(h) { return String(h).trim(); });
+    var col = function(name) { return headers.indexOf(name); };
+    var wines = [];
+    for (var j = headerIdx + 1; j < rows.length; j++) {
+      var r = rows[j];
+      var wineId = String(r[col('WINE ID')]||'').trim();
+      if (!wineId || wineId === 'WINE ID') continue;
+      wines.push({ wineId:wineId, name:String(r[col('WINE NAME')]||'').trim(),
+        country:String(r[col('COUNTRY')]||'').trim(), area:String(r[col('AREA')]||'').trim(),
+        vintage:r[col('VINTAGE')] ? String(r[col('VINTAGE')]).trim() : '',
+        producer:String(r[col('PRODUCER')]||'').trim(), volume:parseInt(r[col('VOLUME')])||750,
+        purchaseDate:String(r[col('PURCHASE DATE')]||'').trim(),
+        retailer:String(r[col('RETAILER')]||'').trim(),
+        purchase:String(r[col('PURCHASE')]||'').trim(), currency:String(r[col('CURRENCY')]||'').trim(),
+        inboundDate:String(r[col('INBOUND DATE')]||'').trim(),
+        outboundDate:String(r[col('OUTBOUND DATE')]||'').trim(),
+        durationToDrink:String(r[col('DURATION TO DRINK')]||'').trim(),
+        note:String(r[col('NOTE')]||'').trim() });
+    }
+    if (!wines.length) throw new Error('データが見つかりませんでした');
+    storageWines = wines;
+    localStorage.setItem('storageWines', JSON.stringify(storageWines));
+    status.innerHTML = '<div class="status-msg success">' + wines.length + ' 本を読み込みました（' + new Date().toLocaleDateString('ja-JP') + ' 更新）</div>';
+    renderStorage(); renderDash();
+  } catch(err) {
+    status.innerHTML = '<div class="status-msg error">エラー: ' + err.message + '</div>';
+  }
 }
 
 function setViewMode(mode) {

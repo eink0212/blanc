@@ -96,18 +96,23 @@ function sheetToObjects(sheet, headers) {
     var row = data[i];
     var id = (row[0] === undefined || row[0] === null) ? '' : String(row[0]);
     if (!id || id === 'undefined' || id === 'null') continue;
-    var rec = [];
-    for (var j = 0; j < headers.length; j++) {
-      var v = row[j];
-      if (v instanceof Date) {
-        rec.push(Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd'));
-      } else {
-        rec.push((v === undefined || v === null) ? '' : String(v));
-      }
-    }
-    out.push(rec);
+    out.push(rowToStrings_(row, headers.length));
   }
   return { h: headers, r: out };
+}
+
+/** 1行を先頭 n 列ぶんの文字列配列にする（日付は yyyy-MM-dd） */
+function rowToStrings_(row, n) {
+  var rec = [];
+  for (var j = 0; j < n; j++) {
+    var v = row[j];
+    if (v instanceof Date) {
+      rec.push(Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd'));
+    } else {
+      rec.push((v === undefined || v === null) ? '' : String(v));
+    }
+  }
+  return rec;
 }
 
 function saveWine(wine) {
@@ -191,6 +196,210 @@ function savePurchase(purchase) {
     ]);
     return { ok: true };
   } catch(e) { return { error: e.message }; }
+}
+
+/** 購入履歴シートの K・L 列。既存の10列（HEADERS.purchase）の後ろに足す */
+var PURCHASE_EXTRA = ['取込ID', '登録日時'];
+
+/** 照合用。前後の空白・連続空白・大文字小文字の違いを無視する */
+function normKey_(v) {
+  return String(v === undefined || v === null ? '' : v).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** 購入履歴の同一判定キー（同じ日・同じ仕入先・同じワイン） */
+function purchaseKey_(date, supplier, name, vintage) {
+  return [date, supplier, name, vintage].map(normKey_).join('\u0001');
+}
+
+/** 購入日を yyyy-MM-dd の文字列にそろえる（シートの値が Date の場合がある） */
+function dateStr_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+  return String(v === undefined || v === null ? '' : v).trim();
+}
+
+/**
+ * 登録前の二重登録チェック（読み取りのみ）。
+ * arg: { items: [{ date, supplier, name, vintage }] }
+ * 戻り値: { matches: [ 各 item と同じ日・同じ仕入先・同じワインの既存購入履歴（無ければ空配列） ] }
+ */
+function checkReception(arg) {
+  try {
+    var items = (arg && arg.items) || [];
+    var sheet = getOrCreateSheet(getSpreadsheet(), SHEET_PURCHASE, HEADERS.purchase);
+    var data = sheet.getDataRange().getValues();
+    var index = {};
+    for (var i = 1; i < data.length; i++) {
+      var r = data[i];
+      if (!r[0]) continue;
+      var k = purchaseKey_(dateStr_(r[9]), r[8], r[2], r[4]);
+      (index[k] = index[k] || []).push({ id: String(r[0]), qty: r[5], price: r[6] });
+    }
+    return {
+      ok: true,
+      matches: items.map(function (it) {
+        return index[purchaseKey_(it.date, it.supplier, it.name, it.vintage)] || [];
+      })
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * 納品書（Reception）の一括取り込み。
+ *
+ * 従来はフロントから1件ごとに adjustStock / saveWine / savePurchase を順番に
+ * 呼んでいたため、途中の1回が遅れると残りが登録されず、押し直すと先頭から
+ * 二重登録になっていた。1回の呼び出しでまとめて書く。
+ *
+ * arg: { batchId: '...', items: [{ name, producer, vintage, supplier, date, qty, price, volume, code }] }
+ *
+ * - 購入履歴を先に書き、そのあとセラーを更新する（購入履歴は経費の記録なので優先）
+ * - 同じ取り込みの中で「同じ日・同じ仕入先・同じワイン・同じ単価」は本数をまとめて1行
+ * - 単価・本数・購入日が無い行は登録しない（経費の合計が信用できなくなるため）
+ * - 購入履歴の K 列に取込ID を書く。同じ取込ID が既にあれば何も書かずに
+ *   { duplicate: true } を返す（通信が切れて押し直しても二重にならない）
+ * - セラーは「名前 + ヴィンテージ + 生産者」が一致する行のうち一番下（最新）の行に
+ *   在庫を足す。一致しなければ新しい行を作る
+ * - 購入履歴の行は追加するだけで、既存行を消したり書き換えたりしない
+ */
+function importReception(arg) {
+  var items = (arg && arg.items) || [];
+  var batchId = String((arg && arg.batchId) || '');
+  if (!batchId) return { error: '取込IDがありません' };
+  if (!items.length) return { error: '取り込む行がありません' };
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { error: '他の保存処理が実行中です。少し待ってからもう一度押してください' };
+  try {
+    var ss = getSpreadsheet();
+    var pSheet = getOrCreateSheet(ss, SHEET_PURCHASE, HEADERS.purchase);
+    var P = HEADERS.purchase.length;
+    var PW = P + PURCHASE_EXTRA.length;
+
+    /* K・L 列の見出しが無ければ付ける */
+    var head = pSheet.getRange(1, P + 1, 1, PURCHASE_EXTRA.length).getValues()[0];
+    if (String(head[0]) !== PURCHASE_EXTRA[0] || String(head[1]) !== PURCHASE_EXTRA[1]) {
+      pSheet.getRange(1, P + 1, 1, PURCHASE_EXTRA.length).setValues([PURCHASE_EXTRA]);
+    }
+
+    /* 同じ取込ID が既にあれば、前回の送信で登録済み */
+    var lastP = pSheet.getLastRow();
+    if (lastP > 1) {
+      var ids = pSheet.getRange(2, P + 1, lastP - 1, 1).getValues();
+      for (var q = 0; q < ids.length; q++) {
+        if (String(ids[q][0]) === batchId) return { ok: true, duplicate: true };
+      }
+    }
+
+    var now = new Date();
+    var nowStr = Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    var today = now.toLocaleDateString('ja-JP');
+
+    /* 1. 検査と、同じ日・同じワイン・同じ単価のまとめ */
+    var results = [];
+    var groups = [], gIndex = {};
+    items.forEach(function (it, i) {
+      var name = String(it.name || '').trim();
+      var qty = parseInt(it.qty, 10) || 0;
+      var price = parseInt(it.price, 10) || 0;
+      var date = dateStr_(it.date);
+      if (!name) { results[i] = { status: 'skip', reason: 'ワイン名がありません' }; return; }
+      if (qty <= 0) { results[i] = { status: 'skip', reason: '本数がありません' }; return; }
+      if (price <= 0) { results[i] = { status: 'skip', reason: '単価がありません' }; return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { results[i] = { status: 'skip', reason: '購入日がありません' }; return; }
+      var rec = {
+        name: name, producer: String(it.producer || '').trim(), vintage: String(it.vintage || '').trim(),
+        supplier: String(it.supplier || '').trim(), date: date, qty: qty, price: price,
+        volume: parseInt(it.volume, 10) || 750, code: String(it.code || '').trim()
+      };
+      var gk = purchaseKey_(rec.date, rec.supplier, rec.name, rec.vintage) + '\u0001' + normKey_(rec.producer) + '\u0001' + price;
+      if (gIndex[gk] === undefined) { gIndex[gk] = groups.length; groups.push({ rec: rec, members: [] }); }
+      else groups[gIndex[gk]].rec.qty += qty;
+      groups[gIndex[gk]].members.push(i);
+      results[i] = { status: 'ok' };
+    });
+    if (!groups.length) {
+      return { ok: true, purchasesAdded: 0, cellarNew: 0, cellarAdded: 0, cellarError: '', results: results,
+               wines: { h: HEADERS.wines, r: [] }, purchases: { h: HEADERS.purchase, r: [] } };
+    }
+
+    /* 2. セラー側の行を決める（書き込みはまだ） */
+    var wSheet = getOrCreateSheet(ss, SHEET_WINES, HEADERS.wines);
+    var W = HEADERS.wines.length;
+    var wData = wSheet.getDataRange().getValues();
+    var wKey = function (name, vintage, producer) {
+      return normKey_(name) + '\u0001' + normKey_(vintage) + '\u0001' + normKey_(producer);
+    };
+    var wIndex = {};
+    for (var i = 1; i < wData.length; i++) {
+      if (!wData[i][0]) continue;
+      wIndex[wKey(wData[i][1], wData[i][3], wData[i][2])] = { row: wData[i].slice(0, W), sheetRow: i + 1, isNew: false };
+    }
+    var changed = [], appended = [];
+    groups.forEach(function (g) {
+      var r = g.rec;
+      var k = wKey(r.name, r.vintage, r.producer);
+      var hit = wIndex[k];
+      if (hit) {
+        hit.row[6] = r.price;
+        hit.row[7] = Math.max(0, (parseInt(hit.row[7], 10) || 0) + r.qty);
+        if (r.supplier) hit.row[9] = r.supplier;
+        hit.row[11] = today;
+        hit.row[12] = r.date;
+        if (!hit.isNew && changed.indexOf(hit) < 0) changed.push(hit);
+        g.cellar = 'add';
+      } else {
+        hit = { row: [uid(), r.name, r.producer, r.vintage, '白', r.volume, r.price, r.qty,
+                      r.code, r.supplier, today, today, r.date], isNew: true };
+        wIndex[k] = hit;
+        appended.push(hit);
+        g.cellar = 'new';
+      }
+      g.wineId = hit.row[0];
+      g.members.forEach(function (i) {
+        results[i].cellar = g.cellar;
+        results[i].merged = g.members.length > 1;
+      });
+    });
+
+    /* 3. 購入履歴を先に書く */
+    var pRows = groups.map(function (g) {
+      var r = g.rec;
+      return [uid(), g.wineId, r.name, r.producer, r.vintage, r.qty, r.price, r.qty * r.price,
+              r.supplier, r.date, batchId, nowStr];
+    });
+    pSheet.getRange(pSheet.getLastRow() + 1, 1, pRows.length, PW).setValues(pRows);
+    SpreadsheetApp.flush();
+
+    /* 4. セラー */
+    var cellarError = '';
+    try {
+      changed.forEach(function (h) { wSheet.getRange(h.sheetRow, 1, 1, W).setValues([h.row]); });
+      if (appended.length) {
+        wSheet.getRange(wSheet.getLastRow() + 1, 1, appended.length, W)
+          .setValues(appended.map(function (h) { return h.row; }));
+      }
+      SpreadsheetApp.flush();
+    } catch (e) {
+      cellarError = e.message;
+    }
+
+    return {
+      ok: true,
+      purchasesAdded: pRows.length,
+      cellarNew: cellarError ? 0 : appended.length,
+      cellarAdded: cellarError ? 0 : changed.length,
+      cellarError: cellarError,
+      results: results,
+      wines: { h: HEADERS.wines, r: cellarError ? [] : changed.concat(appended).map(function (h) { return rowToStrings_(h.row, W); }) },
+      purchases: { h: HEADERS.purchase, r: pRows.map(function (p) { return rowToStrings_(p, P); }) }
+    };
+  } catch (e) {
+    return { error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function saveTasting(t) {
@@ -418,7 +627,7 @@ function fillWineIds() {
 var API_TOKEN = 'blanc-GSAIae2Dt40P';
 
 /** doGet（JSONP フォールバック）で許可する読み取り専用の関数 */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster'];
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
@@ -431,6 +640,8 @@ function apiHandlers_() {
     deleteWine:    function (arg) { return deleteWine(arg); },
     adjustStock:   function (arg) { return adjustStock(arg); },
     savePurchase:  function (arg) { return savePurchase(arg); },
+    importReception: function (arg) { return importReception(arg); },
+    checkReception:  function (arg) { return checkReception(arg); },
     saveTasting:   function (arg) { return saveTasting(arg); },
     deleteTasting: function (arg) { return deleteTasting(arg); },
     saveDrinking:  function (arg) { return saveDrinking(arg); }
