@@ -588,7 +588,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v8 · 2026-10-01</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v9 · 2026-10-01</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -719,35 +719,47 @@ function gasCall(fn, arg, timeoutMs) {
   };
   if (ctl) opts.signal = ctl.signal;
 
-  var req = fetch(GAS_URL, opts).then(function(r) {
-    if (!r.ok) throw new Error('通信エラー (HTTP ' + r.status + ') / ' + fn);
-    // r.json() は GAS が HTML を返したとき意味不明な例外になるので、
-    // 一度テキストで受けて、何が返ってきたかを言えるようにする。
-    return r.text().then(function(txt) {
-      try {
-        return JSON.parse(txt);
-      } catch (e) {
-        if (txt.indexOf('accounts.google.com') >= 0 || txt.indexOf('ServiceLogin') >= 0) {
-          throw new Error('GASのアクセス権が「全員」になっていません');
+  // まれに GAS が POST の中身を受け取らず、GET として扱って "pong" を返すことがある。
+  // このとき関数は実行されていない（doGet の疎通応答）ので、送り直しても安全。
+  // 送り直さないと、履歴が「0件」として表示されていた。
+  var tries = 0;
+  var send = function() {
+    tries++;
+    return fetch(GAS_URL, opts).then(function(r) {
+      if (!r.ok) throw new Error('通信エラー (HTTP ' + r.status + ') / ' + fn);
+      // r.json() は GAS が HTML を返したとき意味不明な例外になるので、
+      // 一度テキストで受けて、何が返ってきたかを言えるようにする。
+      return r.text().then(function(txt) {
+        try {
+          return JSON.parse(txt);
+        } catch (e) {
+          if (txt.indexOf('accounts.google.com') >= 0 || txt.indexOf('ServiceLogin') >= 0) {
+            throw new Error('GASのアクセス権が「全員」になっていません');
+          }
+          if (txt.indexOf('<!DOCTYPE') >= 0 || txt.indexOf('<html') >= 0) {
+            throw new Error('GASがJSON以外を返しました（デプロイを新バージョンで更新してください）');
+          }
+          throw new Error('応答を解析できません: ' + txt.slice(0, 60));
         }
-        if (txt.indexOf('<!DOCTYPE') >= 0 || txt.indexOf('<html') >= 0) {
-          throw new Error('GASがJSON以外を返しました（デプロイを新バージョンで更新してください）');
-        }
-        throw new Error('応答を解析できません: ' + txt.slice(0, 60));
+      });
+    }).then(function(res) {
+      if (!res || res.ok !== true) {
+        var msg = (res && res.error) || 'サーバーエラー';
+        // index.html だけ新しく、GAS 側の貼り替え・再デプロイがまだの状態
+        if (msg.indexOf('未知の関数') >= 0) msg = 'GAS側の更新が必要です（Code.gs を貼り替えて新バージョンでデプロイ） / ' + fn;
+        throw new Error(msg);
       }
+      if (res.data === 'pong' && fn !== 'ping') {
+        if (tries < 3) return send();
+        throw new Error('サーバーが空の応答を返しました。もう一度お試しください / ' + fn);
+      }
+      if (SUB_MUTATORS.indexOf(fn) >= 0) {
+        try { localStorage.removeItem('subCache'); } catch(e) {}
+      }
+      return res.data;
     });
-  }).then(function(res) {
-    if (!res || res.ok !== true) {
-      var msg = (res && res.error) || 'サーバーエラー';
-      // index.html だけ新しく、GAS 側の貼り替え・再デプロイがまだの状態
-      if (msg.indexOf('未知の関数') >= 0) msg = 'GAS側の更新が必要です（Code.gs を貼り替えて新バージョンでデプロイ） / ' + fn;
-      throw new Error(msg);
-    }
-    if (SUB_MUTATORS.indexOf(fn) >= 0) {
-      try { localStorage.removeItem('subCache'); } catch(e) {}
-    }
-    return res.data;
-  });
+  };
+  var req = send();
 
   return new Promise(function(resolve, reject) {
     var timer = setTimeout(function() {
@@ -857,7 +869,8 @@ function ensureSubData() {
   subFetching = true;
   gasCall('getSubData').then(function(sub) {
     subFetching = false;
-    if (!sub || sub.error) return;
+    // 中身の無い応答で「履歴0件」と確定させない（次に Tasting / Historique を開いたとき取り直す）
+    if (!sub || sub.error || !sub.purchases || !sub.drinking) return;
     mapSubData(sub);
     try { localStorage.setItem('subCache', JSON.stringify(sub)); } catch(e) {}
     subLoaded = true;
