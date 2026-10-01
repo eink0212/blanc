@@ -194,6 +194,7 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
 - **フロントを直した** … `index.html` を編集して push。加えて `sw.js` の
   `CACHE_VERSION` を上げる（`blanc-v1` → `blanc-v2`）。上げ忘れると
   古いキャッシュが残って更新が反映されない。
+  画面の一番下の版表示（`index.html` の `appVersion`）も同じ番号・日付に揃える。
 - **GAS を直した** … clasp で反映する（`.clasp.json` がこのフォルダにある。対象は `gas/` の2ファイルだけ）。
   ```
   clasp push                                   # gas/Code.gs と appsscript.json をアップロード
