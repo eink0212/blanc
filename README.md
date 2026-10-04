@@ -4,7 +4,7 @@
 
 - **フロントエンド** … GitHub Pages（このリポジトリの静的ファイル）
 - **バックエンド** … Google Apps Script の Web API（`doPost`）
-- **データ** … Google スプレッドシート `1J4kQGKk0SOjKcVbgmlDIspDRhVcOLZ9J_u-tN4MAWlY`（セラー・飲酒履歴・テイスティング・名前マスター）
+- **データ** … Google スプレッドシート `1J4kQGKk0SOjKcVbgmlDIspDRhVcOLZ9J_u-tN4MAWlY`（ファイル名「Blanc セラー管理」。セラー・棚卸し・飲酒履歴・テイスティング・名前マスター）
 - **購入履歴** … 別ファイル「Ein's Wine 購入履歴」`1dine2pDyAc-GbHf0vHBy8qvQIv3_TByLxUOQDvYThJM`（2026-10-04〜）。
   年ごとのシート（「2026年」など。列は全年共通）＋仕入先・販売・集計・照合リスト。
   ID はスクリプトプロパティ `PURCHASE_SS_ID`。購入日の年のシートに書き、年が変われば「雛形」をコピーして「2027年」などを自動で作る。
