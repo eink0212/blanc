@@ -201,6 +201,22 @@ function savePurchase(purchase) {
 /** 購入履歴シートの K・L 列。既存の10列（HEADERS.purchase）の後ろに足す */
 var PURCHASE_EXTRA = ['取込ID', '登録日時'];
 
+/**
+ * 購入者（経費に入れるのは eins の分）。購入履歴シートの「購入者」列に書く。
+ * 列の位置は決め打ちせず見出しで探し、無ければ右端の次の列に作る
+ * （M列「更新日」などユーザーが付けた見出しを書き換えないため）。
+ */
+var BUYERS = ['eins', '3rd'];
+var BUYER_HEADER = '購入者';
+
+function buyerColumn_(sheet) {
+  var lc = Math.max(sheet.getLastColumn(), 1);
+  var head = sheet.getRange(1, 1, 1, lc).getValues()[0];
+  for (var c = 0; c < head.length; c++) if (String(head[c]).trim() === BUYER_HEADER) return c + 1;
+  sheet.getRange(1, lc + 1).setValue(BUYER_HEADER);
+  return lc + 1;
+}
+
 /** 照合用。前後の空白・連続空白・大文字小文字の違いを無視する */
 function normKey_(v) {
   return String(v === undefined || v === null ? '' : v).trim().replace(/\s+/g, ' ').toLowerCase();
@@ -308,12 +324,15 @@ function importReception(arg) {
       if (qty <= 0) { results[i] = { status: 'skip', reason: '本数がありません' }; return; }
       if (price <= 0) { results[i] = { status: 'skip', reason: '単価がありません' }; return; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { results[i] = { status: 'skip', reason: '購入日がありません' }; return; }
+      var buyer = String(it.buyer || '').trim();
+      if (buyer && BUYERS.indexOf(buyer) < 0) { results[i] = { status: 'skip', reason: '購入者が不明です: ' + buyer }; return; }
       var rec = {
         name: name, producer: String(it.producer || '').trim(), vintage: String(it.vintage || '').trim(),
         supplier: String(it.supplier || '').trim(), date: date, qty: qty, price: price,
-        volume: parseInt(it.volume, 10) || 750, code: String(it.code || '').trim()
+        volume: parseInt(it.volume, 10) || 750, code: String(it.code || '').trim(), buyer: buyer
       };
-      var gk = purchaseKey_(rec.date, rec.supplier, rec.name, rec.vintage) + '\u0001' + normKey_(rec.producer) + '\u0001' + price;
+      /* 購入者が違えば、同じ日・同じワインでも別の行にする（経費の区別のため） */
+      var gk = purchaseKey_(rec.date, rec.supplier, rec.name, rec.vintage) + '\u0001' + normKey_(rec.producer) + '\u0001' + price + '\u0001' + buyer;
       if (gIndex[gk] === undefined) { gIndex[gk] = groups.length; groups.push({ rec: rec, members: [] }); }
       else groups[gIndex[gk]].rec.qty += qty;
       groups[gIndex[gk]].members.push(i);
@@ -369,7 +388,10 @@ function importReception(arg) {
       return [uid(), g.wineId, r.name, r.producer, r.vintage, r.qty, r.price, r.qty * r.price,
               r.supplier, r.date, batchId, nowStr];
     });
-    pSheet.getRange(pSheet.getLastRow() + 1, 1, pRows.length, PW).setValues(pRows);
+    var firstNew = pSheet.getLastRow() + 1;
+    pSheet.getRange(firstNew, 1, pRows.length, PW).setValues(pRows);
+    var bc = buyerColumn_(pSheet);
+    pSheet.getRange(firstNew, bc, pRows.length, 1).setValues(groups.map(function (g) { return [g.rec.buyer]; }));
     SpreadsheetApp.flush();
 
     /* 4. セラー */

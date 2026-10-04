@@ -588,7 +588,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v9 · 2026-10-01</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v10 · 2026-10-04</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -1617,11 +1617,12 @@ function renderScanItems(parsed) {
   var status = document.getElementById('scanStatus');
   var results = document.getElementById('scanResults');
   try {
-    var items, defaultDate, defaultSupplier = '';
+    var items, defaultDate, defaultSupplier = '', defaultBuyer = 'eins';
     if (Array.isArray(parsed)) {
       items = parsed; defaultDate = todayStr();
     } else if (parsed && parsed.items && Array.isArray(parsed.items)) {
       items = parsed.items; defaultDate = parsed.date || todayStr(); defaultSupplier = parsed.supplier || '';
+      if (BUYERS.indexOf(parsed.buyer) >= 0) defaultBuyer = parsed.buyer;
     } else {
       throw new Error('正しい形式で貼り付けてください');
     }
@@ -1632,6 +1633,9 @@ function renderScanItems(parsed) {
       '<span style="font-size:11px;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;">購入日（一括）</span>' +
       '<input type="date" id="bulk-date" value="' + defaultDate + '" style="width:auto;padding:5px 8px;font-size:12px;">' +
       '<button class="btn-sm" onclick="applyBulkDate()">全件に適用</button>' +
+      '<span style="font-size:11px;color:var(--text3);letter-spacing:0.08em;margin-left:8px;">購入者（一括）</span>' +
+      buyerSelect('bulk-buyer', defaultBuyer) +
+      '<button class="btn-sm" onclick="applyBulkBuyer()">全件に適用</button>' +
       '</div><div style="margin-top:8px;">';
     scanItems.forEach(function(it, i) {
       var converted = lookupName(it.name);
@@ -1654,6 +1658,7 @@ function renderScanItems(parsed) {
         '<div class="scan-field"><label>本数</label><input type="number" id="sq-' + i + '" value="' + qty + '" min="1"></div>' +
         '<div class="scan-field"><label>単価(税込)</label><input type="number" id="sp-' + i + '" value="' + (it.price||'') + '" placeholder="必須"></div>' +
         '<div class="scan-field"><label>購入日</label><input type="date" id="sdate-' + i + '" value="' + (it.date||defaultDate) + '" style="width:130px;font-size:11px;"></div>' +
+        '<div class="scan-field"><label>購入者</label>' + buyerSelect('sb-' + i, BUYERS.indexOf(it.buyer) >= 0 ? it.buyer : defaultBuyer) + '</div>' +
         '<div><input type="checkbox" id="sc-' + i + '" checked style="width:auto;margin-right:4px;"><label for="sc-' + i + '" style="font-size:10px;">登録</label></div>' +
         '</div>';
     });
@@ -1676,6 +1681,21 @@ function applyBulkDate() {
   while (document.getElementById('sdate-' + i)) { document.getElementById('sdate-' + i).value = val; i++; }
 }
 
+// 購入者。経費に入れるのは eins の分（購入履歴の「購入者」列に書く）
+var BUYERS = ['eins', '3rd'];
+function buyerSelect(id, value) {
+  return '<select id="' + id + '" style="width:auto;padding:5px 8px;font-size:12px;">' +
+    BUYERS.map(function(b) { return '<option value="' + b + '"' + (b === value ? ' selected' : '') + '>' + b + '</option>'; }).join('') +
+    '</select>';
+}
+
+function applyBulkBuyer() {
+  var bulk = document.getElementById('bulk-buyer');
+  if (!bulk) return;
+  var i = 0;
+  while (document.getElementById('sb-' + i)) { document.getElementById('sb-' + i).value = bulk.value; i++; }
+}
+
 function clearScan() {
   var r = document.getElementById('scanResults'); if (r) r.innerHTML = '';
   var s = document.getElementById('scanStatus'); if (s) s.innerHTML = '';
@@ -1687,7 +1707,7 @@ function readScanRow(i) {
   var val = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
   var it = scanItems[i] || {};
   return { name:val('sn-' + i), producer:val('sd-' + i), vintage:val('sv-' + i),
-    supplier:val('ss-' + i), date:val('sdate-' + i),
+    supplier:val('ss-' + i), date:val('sdate-' + i), buyer:val('sb-' + i),
     qty:parseInt(val('sq-' + i))||0, price:parseInt(val('sp-' + i))||0,
     volume:it.volume||750, code:it.code||'' };
 }
@@ -1773,7 +1793,7 @@ function importScan() {
     var skipped = 0;
     var lines = scanItems.map(function(_, i) {
       var row = readScanRow(i);
-      var label = (row.name || '(名前なし)') + (row.vintage ? ' ' + row.vintage : '') + ' ×' + (row.qty || 0);
+      var label = (row.name || '(名前なし)') + (row.vintage ? ' ' + row.vintage : '') + ' ×' + (row.qty || 0) + (row.buyer ? '（' + row.buyer + '）' : '');
       var k = sent.indexOf(i);
       var st;
       if (k < 0) st = '<span style="color:var(--text3);">登録しなかった</span>';
