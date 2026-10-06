@@ -382,10 +382,11 @@ function importReception(arg) {
         name: name, producer: String(it.producer || '').trim(), vintage: String(it.vintage || '').trim(),
         supplier: String(it.supplier || '').trim(), date: date, qty: qty, price: price,
         volume: parseInt(it.volume, 10) || 750, code: String(it.code || '').trim(), buyer: buyer,
-        color: String(it.color || '').trim() || '白'
+        color: String(it.color || '').trim() || '白',
+        toCellar: it.cellar !== false            /* cellar:false なら購入履歴だけ（赤ワインなどセラーで管理しないもの） */
       };
       /* 購入者が違えば、同じ日・同じワインでも別の行にする（経費の区別のため） */
-      var gk = purchaseKey_(rec.date, rec.supplier, rec.name, rec.vintage) + '\u0001' + normKey_(rec.producer) + '\u0001' + price + '\u0001' + buyer;
+      var gk = purchaseKey_(rec.date, rec.supplier, rec.name, rec.vintage) + '\u0001' + normKey_(rec.producer) + '\u0001' + price + '\u0001' + buyer + '\u0001' + rec.toCellar;
       if (gIndex[gk] === undefined) { gIndex[gk] = groups.length; groups.push({ rec: rec, members: [] }); }
       else groups[gIndex[gk]].rec.qty += qty;
       groups[gIndex[gk]].members.push(i);
@@ -411,6 +412,11 @@ function importReception(arg) {
     var changed = [], appended = [];
     groups.forEach(function (g) {
       var r = g.rec;
+      if (!r.toCellar) {
+        g.cellar = 'none'; g.wineId = '';
+        g.members.forEach(function (i) { results[i].cellar = 'none'; results[i].merged = g.members.length > 1; });
+        return;
+      }
       var k = wKey(r.name, r.vintage, r.producer);
       var hit = wIndex[k];
       if (hit) {
