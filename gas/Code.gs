@@ -711,6 +711,26 @@ function setPurchaseDoc(arg) {
   return { ok: true, updated: n };
 }
 
+/**
+ * 購入履歴の年ごとの本数・金額（トップ画面用）。購入者に関係なく全部数える。
+ */
+function getPurchaseSummary() {
+  var years = [];
+  purchaseBook_().getSheets().forEach(function (sh) {
+    var m = sh.getName().match(/^(\d{4})年$/);
+    if (!m) return;
+    var b = 0, a = 0;
+    bookRows_(sh).forEach(function (r) {
+      var q = Number(r[6]), x = Number(r[8]);
+      if (!isNaN(q)) b += q;
+      if (!isNaN(x)) a += x;
+    });
+    years.push({ year: +m[1], bottles: b, amount: a });
+  });
+  years.sort(function (p, q) { return p.year - q.year; });
+  return { years: years };
+}
+
 /* ===== 寺田倉庫（「寺田倉庫」シート。保管タブがどの端末でも同じ一覧を出すため） ===== */
 var STORAGE_SHEET = '寺田倉庫';
 var STORAGE_HEAD = ['寺田ID', '生産者', 'ワイン名', 'ヴィンテージ', '色', '産地', '容量', '入庫日', 'セラー在庫', 'セラーID', 'メモ'];
@@ -780,7 +800,7 @@ function saveStorage(arg) {
 var API_TOKEN = 'blanc-GSAIae2Dt40P';
 
 /** doGet（JSONP フォールバック）で許可する読み取り専用の関数 */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage'];
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
@@ -799,6 +819,7 @@ function apiHandlers_() {
     deleteTasting: function (arg) { return deleteTasting(arg); },
     saveDrinking:  function (arg) { return saveDrinking(arg); },
     getStorage:    function (arg) { return getStorage(); },
+    getPurchaseSummary: function (arg) { return getPurchaseSummary(); },
     saveStorage:   function (arg) { return saveStorage(arg); },
     setPurchaseDoc: function (arg) { return setPurchaseDoc(arg); }
   };

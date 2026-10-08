@@ -584,7 +584,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v12 · 2026-10-08</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v13 · 2026-10-08</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -883,6 +883,7 @@ function loadData(retryCount) {
   try { var s = localStorage.getItem('storageWines'); if (s) storageWines = JSON.parse(s); } catch(e) {}
   try { var m = localStorage.getItem('nameMaster'); if (m) nameMaster = JSON.parse(m); } catch(e) {}
   if (!retryCount) fetchStorage().catch(function() {});
+  if (!retryCount) fetchPurchaseSummary().catch(function() {});
   if (!retryCount) fetchNameMaster().then(function() { searchTermsCache = { q: null, terms: [] }; }).catch(function() {});   // カタカナ検索用に最新を取る
   loadCategories();
 
@@ -966,14 +967,36 @@ function renderDash() {
   var storageTotal = storageWines.length;
   var cellarVal = 0;
   db.wines.forEach(function(w) { cellarVal += (w.price||0) * (w.stock||0); });
-  var historiqueVal = 0;
-  db.drinking.forEach(function(d) { historiqueVal += (d.price||0) * (d.qty||1); });
+  var card = function(label, value, sub, page) {
+    return '<div class="stat-card"' + (page ? ' onclick="showPage(\'' + page + '\')" style="cursor:pointer;"' : ' style="cursor:default;"') + '>' +
+      '<div class="stat-label">' + label + '</div><div class="stat-value" style="font-size:22px;">' + value +
+      '<span style="font-size:13px;margin-left:2px;">btl</span></div>' +
+      (sub ? '<div style="font-size:10px;color:var(--text3);margin-top:4px;">' + sub + '</div>' : '') + '</div>';
+  };
+  var yen = function(v) { return '¥' + Math.round(v).toLocaleString(); };
+  // 購入履歴（購入者に関係なく全部）。年ごとの集計を GAS から取る
+  var ys = (purchaseSummary && purchaseSummary.years) || [], thisYear = new Date().getFullYear();
+  var py = null, pAll = 0, pFrom = '';
+  ys.forEach(function(y) { pAll += y.bottles; if (!pFrom) pFrom = y.year; if (y.year === thisYear) py = y; });
   var sg = document.getElementById('stat-grid');
   if (sg) sg.innerHTML =
-    '<div class="stat-card" onclick="showPage(\'cellar\')" style="cursor:pointer;"><div class="stat-label">Home Cellar</div><div class="stat-value" style="font-size:22px;">' + cellarStock + '<span style="font-size:13px;margin-left:2px;">btl</span></div></div>' +
-    '<div class="stat-card" onclick="showPage(\'storage\')" style="cursor:pointer;"><div class="stat-label">Terada</div><div class="stat-value" style="font-size:22px;">' + storageTotal + '<span style="font-size:13px;margin-left:2px;">btl</span></div></div>' +
-    '<div class="stat-card" onclick="showPage(\'historique\')" style="cursor:pointer;"><div class="stat-label">Historique</div><div class="stat-value" style="font-size:22px;">' + db.drinking.length + '<span style="font-size:13px;margin-left:2px;">btl</span></div></div>' +
-    '<div class="stat-card" style="cursor:default;"><div class="stat-label">Total</div><div class="stat-value" style="font-size:22px;">' + (cellarStock + storageTotal + db.drinking.length) + '<span style="font-size:13px;margin-left:2px;">btl</span></div><div style="font-size:10px;color:var(--text3);margin-top:4px;">\u00A5' + (cellarVal + historiqueVal).toLocaleString() + '</div></div>';
+    card('Home Cellar', cellarStock, yen(cellarVal), 'cellar') +
+    card('Terada', storageTotal, '', 'storage') +
+    card('Total', cellarStock + storageTotal, '家＋寺田', '') +
+    card('Achats ' + thisYear, py ? py.bottles : (ys.length ? 0 : '–'), py ? yen(py.amount) + (pAll ? '<br>' + pFrom + '年〜 計 ' + pAll + ' btl' : '') : '', 'historique');
+}
+
+// トップ画面の「購入」欄。端末の控えで先に描き、GAS から最新を取って描き直す
+var purchaseSummary = null;
+try { purchaseSummary = JSON.parse(localStorage.getItem('purchaseSummary') || 'null'); } catch(e) {}
+function fetchPurchaseSummary() {
+  return gasCall('getPurchaseSummary').then(function(r) {
+    if (r && !r.error && r.years) {
+      purchaseSummary = r;
+      try { localStorage.setItem('purchaseSummary', JSON.stringify(r)); } catch(e) {}
+      renderDash();
+    }
+  });
 }
 
 function setStockFilter(el, val) {
@@ -1799,7 +1822,7 @@ function importScan() {
         var x = (r.results || [])[k] || {};
         if (x.status !== 'ok') { skipped++; st = '<span style="color:#8C3020;">スキップ（' + (x.reason || '不明') + '）</span>'; }
         else st = '購入履歴 ✓' + (x.merged ? '（同じ日・同じワインを1行に）' : '') + ' ／ セラー ' +
-          (r.cellarError ? '<span style="color:#8C3020;">未更新</span>' : (x.cellar === 'new' ? '新規' : '在庫を追加'));
+          (r.cellarError ? '<span style="color:#8C3020;">未更新</span>' : (x.cellar === 'new' ? '新規' : x.cellar === 'none' ? '登録しない（購入履歴のみ）' : '在庫を追加'));
       }
       return '<div style="font-size:12px;padding:6px 0;border-bottom:0.5px solid var(--border);">' + label + '<br>' + st + '</div>';
     });
@@ -1808,6 +1831,7 @@ function importScan() {
       ' 件・在庫を追加 ' + r.cellarAdded + ' 件' + (skipped ? ' ／ スキップ ' + skipped + ' 件' : '') + '</div>' +
       (r.cellarError ? '<div class="status-msg error">購入履歴は登録済みですが、セラーの更新に失敗しました：' + r.cellarError + '</div>' : '');
     renderCellar(); renderDash(); showLoader(false);
+    fetchPurchaseSummary().catch(function() {});
   }).catch(function(e) {
     showLoader(false);
     alert('エラー: ' + e.message + '\n\n内容はそのまま残っています。電波の良い場所でもう一度「登録する」を押してください（二重に登録されることはありません）。');
