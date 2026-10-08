@@ -246,7 +246,7 @@ function appendPurchases_(book, rows) {
     if (!m) throw new Error('購入日が不正です: ' + p.date);
     (byYear[m[1]] = byYear[m[1]] || []).push([
       new Date(+m[1], +m[2] - 1, +m[3]), p.supplier || '', p.producer || '', p.name || '', p.vintage || '', p.color || '白',
-      p.qty, p.price, p.qty * p.price, p.buyer || '', '', p.memo || '', p.id, p.wineId || '', p.batchId || '', p.at || ''
+      p.qty, p.price, p.qty * p.price, p.buyer || '', p.doc || '', p.memo || '', p.id, p.wineId || '', p.batchId || '', p.at || ''
     ]);
   });
   Object.keys(byYear).forEach(function (y) {
@@ -445,7 +445,8 @@ function importReception(arg) {
     var pRecs = groups.map(function (g) {
       var r = g.rec;
       return { date: r.date, supplier: r.supplier, producer: r.producer, name: r.name, vintage: r.vintage, color: r.color,
-               qty: r.qty, price: r.price, buyer: r.buyer, id: uid(), wineId: g.wineId, batchId: batchId, at: nowStr };
+               qty: r.qty, price: r.price, buyer: r.buyer, id: uid(), wineId: g.wineId, batchId: batchId, at: nowStr,
+               doc: String((arg && arg.doc) || '') };
     });
     appendPurchases_(book, pRecs);
     SpreadsheetApp.flush();
@@ -696,6 +697,20 @@ function fillWineIds() {
  *  Web API レイヤー（GitHub Pages のフロントから呼ばれる）
  * ============================================================== */
 
+/**
+ * 取込ID の行の「書類」列に、保管した納品書のファイル名を入れる。
+ * arg: { batchId, year, doc }
+ */
+function setPurchaseDoc(arg) {
+  var batchId = String((arg && arg.batchId) || ''), doc = String((arg && arg.doc) || '');
+  if (!batchId || !doc) return { error: '取込IDとファイル名が必要です' };
+  var sh = purchaseYearSheet_(purchaseBook_(), String(arg.year || new Date().getFullYear()), false);
+  if (!sh || sh.getLastRow() < 2) return { error: 'その年のシートがありません' };
+  var ids = sh.getRange(2, 15, sh.getLastRow() - 1, 1).getValues(), n = 0;
+  for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === batchId) { sh.getRange(i + 2, 11).setValue(doc); n++; }
+  return { ok: true, updated: n };
+}
+
 /* ===== 寺田倉庫（「寺田倉庫」シート。保管タブがどの端末でも同じ一覧を出すため） ===== */
 var STORAGE_SHEET = '寺田倉庫';
 var STORAGE_HEAD = ['寺田ID', '生産者', 'ワイン名', 'ヴィンテージ', '色', '産地', '容量', '入庫日', 'セラー在庫', 'セラーID', 'メモ'];
@@ -784,7 +799,8 @@ function apiHandlers_() {
     deleteTasting: function (arg) { return deleteTasting(arg); },
     saveDrinking:  function (arg) { return saveDrinking(arg); },
     getStorage:    function (arg) { return getStorage(); },
-    saveStorage:   function (arg) { return saveStorage(arg); }
+    saveStorage:   function (arg) { return saveStorage(arg); },
+    setPurchaseDoc: function (arg) { return setPurchaseDoc(arg); }
   };
 }
 
