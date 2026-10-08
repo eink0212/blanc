@@ -5,7 +5,7 @@
 //   - GAS API（script.google.com / googleusercontent.com）… 一切キャッシュしない
 // 中身を変えたら CACHE_VERSION を上げること。
 
-var CACHE_VERSION = 'blanc-v13';
+var CACHE_VERSION = 'blanc-v14';
 var SHELL = [
   './',
   './index.html',

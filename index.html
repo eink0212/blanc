@@ -103,6 +103,10 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
 .wine-meta{font-size:10px;color:var(--text3);display:flex;flex-wrap:wrap;gap:6px;letter-spacing:0.03em;margin-top:2px}
 .wine-meta span::after{content:'·';margin-left:6px;opacity:0.4}
 .wine-meta span:last-child::after{display:none}
+/* 一覧（Cave の「一覧」表示）は1行に収める。長い生産者名は「…」で切る */
+.wine-meta.one-line{flex-wrap:nowrap;white-space:nowrap;overflow:hidden}
+.wine-meta.one-line span{flex-shrink:0}
+.wine-meta.one-line span:first-child{flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 
 /* ── Wine right (バッジのみ) ── */
 .wine-right{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0}
@@ -463,12 +467,6 @@ body{overflow-x:clip;min-height:100dvh}
   <div id="stat-grid" class="stat-grid"></div>
   <div class="search-bar">
     <input type="text" id="cellar-search" placeholder="ワイン名・生産者..." oninput="debounced(renderCellar)">
-    <select id="cellar-region" onchange="renderCellar()" style="width:auto;font-size:11px;padding:4px 8px;">
-      <option value="">すべての産地</option>
-      <option>ブルゴーニュ</option><option>アルザス</option><option>ロワール</option>
-      <option>ボルドー</option><option>シャンパーニュ</option><option>その他フランス</option>
-      <option>ドイツ</option><option>イタリア</option><option>その他</option>
-    </select>
     <div class="view-toggle">
       <button class="view-btn active" id="btn-view-group" onclick="setViewMode('group')">生産者</button>
       <button class="view-btn" id="btn-view-list" onclick="setViewMode('list')">一覧</button>
@@ -482,8 +480,8 @@ body{overflow-x:clip;min-height:100dvh}
     </select>
   </div>
   <div class="filter-chips">
-    <div class="chip active" onclick="setStockFilter(this,'all')">すべて</div>
-    <div class="chip" onclick="setStockFilter(this,'in')">在庫あり</div>
+    <div class="chip" onclick="setStockFilter(this,'all')">すべて</div>
+    <div class="chip active" onclick="setStockFilter(this,'in')">在庫あり</div>
     <div class="chip" onclick="setStockFilter(this,'low')">残少</div>
     <div class="chip" onclick="setStockFilter(this,'out')">在庫なし</div>
   </div>
@@ -571,8 +569,8 @@ body{overflow-x:clip;min-height:100dvh}
       <option value="producer">生産者順</option>
       <option value="price-asc">単価 安い順</option>
       <option value="price-desc">単価 高い順</option>
-      <option value="date-asc">仕入れ日 古い順</option>
-      <option value="date-desc">仕入れ日 新しい順</option>
+      <option value="date-asc">飲んだ日 古い順</option>
+      <option value="date-desc">飲んだ日 新しい順</option>
     </select>
   </div>
   <div class="sec-header">
@@ -584,7 +582,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v13 · 2026-10-08</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v14 · 2026-10-08</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -595,24 +593,12 @@ body{overflow-x:clip;min-height:100dvh}
       <div class="form-group full"><label>ワイン名 *</label><input type="text" id="w-name"></div>
       <div class="form-group"><label>生産者</label><input type="text" id="w-producer"></div>
       <div class="form-group"><label>ヴィンテージ</label><input type="number" id="w-vintage"></div>
-      <div class="form-group"><label>産地</label>
-        <select id="w-region">
-          <option value="">選択...</option>
-          <option>ブルゴーニュ</option><option>アルザス</option><option>ロワール</option>
-          <option>ボルドー</option><option>シャンパーニュ</option><option>その他フランス</option>
-          <option>ドイツ</option><option>イタリア</option><option>その他</option>
-        </select>
-      </div>
-      <div class="form-group"><label>アペラシオン</label><input type="text" id="w-appellation"></div>
-      <div class="form-group"><label>品種</label><input type="text" id="w-grape"></div>
       <div class="form-group"><label>購入日</label><input type="date" id="w-purchaseDate"></div>
       <div class="form-group"><label>容量 (ml)</label><input type="number" id="w-volume" value="750"></div>
       <div class="form-group"><label>仕入れ単価 (円)</label><input type="number" id="w-price"></div>
-      <div class="form-group"><label>在庫本数</label><input type="number" id="w-stock" value="1" min="0"></div>
+      <div class="form-group"><label id="w-stock-label">在庫本数</label><input type="number" id="w-stock" value="1" min="0"></div>
       <div class="form-group"><label>仕入先</label><input type="text" id="w-supplier"></div>
       <div class="form-group"><label>商品コード</label><input type="text" id="w-code"></div>
-<input type="hidden" id="w-category" value="cave">
-      <div class="form-group full"><label>メモ</label><textarea id="w-memo" rows="2"></textarea></div>
     </div>
     <div class="btn-row">
       <button class="btn btn-outline" onclick="closeModal('wineModal')">Annuler</button>
@@ -676,7 +662,7 @@ body{overflow-x:clip;min-height:100dvh}
 
 var db = { wines:[], purchases:[], tastings:[], drinking:[] };
 var storageWines = [];
-var stockFilter = 'all';
+var stockFilter = 'in';   // 在庫0の行（飲み終わったワイン）が多いので、最初は在庫ありだけ
 var scanItems = [];
 var nameMaster = { domaine:[], wine:[] };
 
@@ -697,7 +683,11 @@ var API_TOKEN = 'blanc-GSAIae2Dt40P';
 // 履歴(purchases/tastings/drinking)を書き換える関数。
 // これらを呼んだら subCache を捨てる。呼び出し側に散らすと漏れるので
 // gasCall の中で一括して判定する。
-var SUB_MUTATORS = ['saveTasting', 'deleteTasting', 'saveDrinking', 'savePurchase', 'importReception'];
+var SUB_MUTATORS = ['saveTasting', 'deleteTasting', 'saveDrinking', 'importReception'];
+// セラーを書き換える関数。呼んだら writeSeq を進め、それより前に頼んだ一覧の応答は使わない
+// （起動直後に「飲んだ」を押すと、遅れて届いた古い一覧で在庫が1本戻って見えていた）
+var WINE_MUTATORS = ['adjustStock', 'saveWine', 'deleteWine', 'importReception'];
+var writeSeq = 0, writesInFlight = 0;
 
 // GAS の応答は通常2〜6秒。これを超えたら打ち切る。
 // 無制限に待つと、返ってこなかったときローダーが出たまま固まる。
@@ -714,6 +704,8 @@ function gasCall(fn, arg, timeoutMs) {
     body: JSON.stringify({ fn: fn, arg: arg, token: API_TOKEN })
   };
   if (ctl) opts.signal = ctl.signal;
+  var isWineWrite = WINE_MUTATORS.indexOf(fn) >= 0;
+  if (isWineWrite) { writeSeq++; writesInFlight++; }
 
   // まれに GAS が POST の中身を受け取らず、GET として扱って "pong" を返すことがある。
   // このとき関数は実行されていない（doGet の疎通応答）ので、送り直しても安全。
@@ -752,6 +744,8 @@ function gasCall(fn, arg, timeoutMs) {
       if (SUB_MUTATORS.indexOf(fn) >= 0) {
         try { localStorage.removeItem('subCache'); } catch(e) {}
       }
+      // 呼び出し側が db.wines を更新し終えてから控えを保存する
+      if (isWineWrite) setTimeout(saveWinesCache, 0);
       return res.data;
     });
   };
@@ -759,12 +753,26 @@ function gasCall(fn, arg, timeoutMs) {
 
   return new Promise(function(resolve, reject) {
     var timer = setTimeout(function() {
+      if (isWineWrite) writesInFlight = Math.max(0, writesInFlight - 1);
+      isWineWrite = false;
       if (ctl) { try { ctl.abort(); } catch(e) {} }
       reject(new Error('応答がありません（' + Math.round(limit/1000) + '秒待機） / ' + fn));
     }, limit);
-    req.then(function(v) { clearTimeout(timer); resolve(v); },
-             function(e) { clearTimeout(timer); reject(e); });
+    var done = function() { clearTimeout(timer); if (isWineWrite) writesInFlight = Math.max(0, writesInFlight - 1); };
+    req.then(function(v) { done(); resolve(v); },
+             function(e) { done(); reject(e); });
   });
+}
+
+// 名前・メモなどを HTML に差し込むときに通す（「<」「&」で表示が崩れないように）
+function esc(v) {
+  return String(v === undefined || v === null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// セラーの控え（次に開いたとき通信を待たずに描く用）。書き換えのたびに保存し直す
+function saveWinesCache() {
+  try { localStorage.setItem('winesCache', JSON.stringify(db.wines)); } catch(e) {}
 }
 
 var _debTimer = null;
@@ -858,10 +866,11 @@ function mapSubData(data) {
 // getSubData は 5〜6秒 / 360KB かかる。毎回の起動では取らず、
 // キャッシュを使い、Tasting / Historique を開いたときに一度だけ取りに行く。
 var _loaderGuard = null;  // ローダーが出たまま固まらないための保険
-var subLoaded = false;   // getSubData が一度でも届いたか
+var subLoaded = false;   // 履歴を表示できる状態か（控え・最新どちらでも）
+var subFresh = false;    // この起動で最新を取ったか。控えだけだと他の端末の記録が出ないので必ず一度取る
 var subFetching = false; // 取得中か（重複呼び出しを防ぐ）
 function ensureSubData() {
-  if (subLoaded || subFetching) return;
+  if (subFresh || subFetching) return;
   subFetching = true;
   gasCall('getSubData').then(function(sub) {
     subFetching = false;
@@ -869,7 +878,7 @@ function ensureSubData() {
     if (!sub || sub.error || !sub.purchases || !sub.drinking) return;
     mapSubData(sub);
     try { localStorage.setItem('subCache', JSON.stringify(sub)); } catch(e) {}
-    subLoaded = true;
+    subLoaded = true; subFresh = true;
     renderDash();
     var p = document.getElementById('page-historique');
     if (p && p.classList.contains('active')) renderHistorique();
@@ -885,14 +894,15 @@ function loadData(retryCount) {
   if (!retryCount) fetchStorage().catch(function() {});
   if (!retryCount) fetchPurchaseSummary().catch(function() {});
   if (!retryCount) fetchNameMaster().then(function() { searchTermsCache = { q: null, terms: [] }; }).catch(function() {});   // カタカナ検索用に最新を取る
-  loadCategories();
 
   // ① キャッシュがあれば通信を待たずに描く。オフラインでも一覧が見える。
-  var painted = false;
+  // 再試行（retryCount>0）でも、すでに一覧が出ていれば「描いた」扱いにする
+  // （以前は再試行のたびに false に戻り、最後にエラー画面で一覧を上書きしていた）
+  var painted = db.wines.length > 0;
   if (retryCount === 0) {
     try {
       var c = localStorage.getItem('winesCache');
-      if (c) { db.wines = JSON.parse(c); renderDash(); renderCellar(); painted = true; }
+      if (c) { db.wines = JSON.parse(c); renderDash(); renderCellar(); painted = db.wines.length > 0; }
     } catch(e) {}
     try {
       var sc = localStorage.getItem('subCache');
@@ -911,13 +921,18 @@ function loadData(retryCount) {
   }, 40000);
 
   // ② 起動に要るのはセラーだけ。getSubData はここでは取らない。
+  var seqAtStart = writeSeq;
   gasCall('getWinesOnly').then(function(data) {
     if (data.error) { alert('エラー: ' + data.error); showLoader(false); return; }
-    db.wines = toObjs(data.wines).map(mapWine);
-    try { localStorage.setItem('winesCache', JSON.stringify(db.wines)); } catch(e) {}
-    renderDash(); renderCellar(); showLoader(false);
-    // 履歴が一度も取れていなければ、描画を終えてから裏で取りに行く
-    if (!subLoaded) setTimeout(ensureSubData, 1200);
+    // 頼んだあとに在庫を書き換えていたら、この一覧は古いので使わない
+    if (writeSeq === seqAtStart && !writesInFlight) {
+      db.wines = toObjs(data.wines).map(mapWine);
+      saveWinesCache();
+      renderDash(); renderCellar();
+    }
+    if (!writesInFlight) showLoader(false);
+    // 描画を終えてから、裏で履歴の最新を取りに行く
+    if (!subFresh) setTimeout(ensureSubData, 1200);
   }, function(e) {
     if (retryCount < 3) { setTimeout(function() { loadData(retryCount + 1); }, 1500); }
     else if (!painted) { showFatal('データを取得できませんでした', (e && e.message) || String(e)); }
@@ -927,24 +942,6 @@ function loadData(retryCount) {
   });
 }
 
-var wineCategories = {};
-
-function loadCategories() {
-  try {
-    var s = localStorage.getItem('wineCategories');
-    if (s) wineCategories = JSON.parse(s);
-  } catch(e) {}
-}
-
-function saveCategory(wineId, cat) {
-  wineCategories[wineId] = cat;
-  localStorage.setItem('wineCategories', JSON.stringify(wineCategories));
-}
-
-function getCategory(wineId) {
-  return wineCategories[wineId] || 'cave';
-}
-
 function showPage(id) {
   document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
   document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
@@ -952,16 +949,18 @@ function showPage(id) {
   document.getElementById('page-' + pageId).classList.add('active');
   var map = {dash:0, cellar:0, storage:1, scan:2, tasting:3, historique:4};
   if (map[id] !== undefined) document.querySelectorAll('.nav-tab')[map[id]].classList.add('active');
-  if (id === 'dash' || id === 'cellar') { renderDash(); renderCellar(); }
+  if (id === 'dash' || id === 'cellar') {
+    // Cave を押したら、今あるワインだけ（在庫あり）に戻す
+    stockFilter = 'in';
+    document.querySelectorAll('.filter-chips .chip').forEach(function(c, i) { c.classList.toggle('active', i === 1); });
+    renderDash(); renderCellar();
+  }
   if (id === 'storage') renderStorage();
   if (id === 'tasting') { ensureSubData(); renderTasting(); }
   if (id === 'historique') { ensureSubData(); renderHistorique(); }
 }
 
 function renderDash() {
-  var caveWines = db.wines.filter(function(w) { return getCategory(w.id) === 'cave'; });
-  var caveStock = 0, caveVal = 0;
-  caveWines.forEach(function(w) { caveStock += (w.stock||0); caveVal += (w.price||0) * (w.stock||0); });
   var cellarStock = 0;
   db.wines.forEach(function(w) { cellarStock += (w.stock||0); });
   var storageTotal = storageWines.length;
@@ -1010,10 +1009,8 @@ function renderCellar() {
   var viewMode = document.getElementById('cellar-view-mode') ? document.getElementById('cellar-view-mode').value : 'group';
   var sortMode = document.getElementById('cellar-sort') ? document.getElementById('cellar-sort').value : 'producer';
   var q = (document.getElementById('cellar-search').value || '').toLowerCase();
-  var reg = document.getElementById('cellar-region').value;
   var wines = db.wines.filter(function(w) {
     if (!matchQ(q, [w.name, w.producer])) return false;
-    // if (reg && w.region !== reg) return false; // 産地列廃止
     if (stockFilter === 'in' && (w.stock||0) < 1) return false;   // 「在庫あり」は1本以上
     if (stockFilter === 'low' && (w.stock||0) !== 1) return false;
     if (stockFilter === 'out' && (w.stock||0) !== 0) return false;
@@ -1056,11 +1053,6 @@ function scrollToGroup(initial) {
   if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
-function setCat(wineId, cat) {
-  saveCategory(wineId, cat);
-  renderCellar();
-  renderDash();
-}
 var _latestPurchaseByWine = null;
 function buildPurchaseIndex() {
   _latestPurchaseByWine = {};
@@ -1076,19 +1068,6 @@ function getLatestPurchaseDate(wineId) {
   if (!_latestPurchaseByWine) buildPurchaseIndex();
   return _latestPurchaseByWine[wineId] || '';
 }
-function getProducerType(producer) {
-  if (!producer) return '';
-  var p = producer.toLowerCase();
-  if (p.indexOf('domaine') >= 0 || p.indexOf('dom.') >= 0) return 'D';
-  if (p.indexOf('maison') >= 0) return 'M';
-  if (p.indexOf('château') >= 0 || p.indexOf('chateau') >= 0) return 'C';
-  if (p.indexOf('cave') >= 0) return 'C';
-  if (p.indexOf('closerie') >= 0 || p.indexOf('clos') >= 0) return 'D';
-  return '';
-}
-
-function catBadge(cat) { return ''; }
-
 function makeWineActions(w) {
   return '<div class="wine-actions">' +
     '<button class="btn-sm" data-id="' + w.id + '" onclick="event.stopPropagation();doAdjust(this.dataset.id,-1)">－ 1本</button>' +
@@ -1106,7 +1085,6 @@ function makeDetailPanel(w) {
   if (w.price) h += '<div class="detail-price">仕入単価 <span>\u00A5' + w.price.toLocaleString() + '</span></div>';
   var latestDate = w.purchaseDate || getLatestPurchaseDate(w.id);
   if (w.code || latestDate) h += '<div class="detail-meta">' + (w.code ? 'CODE ' + w.code : '') + (latestDate ? (w.code ? ' · ' : '') + '購入日 ' + latestDate : '') + '</div>';
-  if (w.memo) h += '<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">' + w.memo + '</div>';
   h += makeWineActions(w);
   return h;
 }
@@ -1154,7 +1132,7 @@ function renderCellarGroup(wines, cl, sortMode) {
     var gid = 'group-' + initial + '-' + gi;
     h += '<div class="producer-group" id="' + gid + '">';
     h += '<div class="producer-header" data-gid="' + gid + '" onclick="toggleProducerGroup(this.dataset.gid)">';
-    h += '<div class="producer-name">' + (producer||'') + '</div>';
+    h += '<div class="producer-name">' + esc(producer) + '</div>';
     h += '<div style="display:flex;align-items:center;gap:10px;">';
     h += '<div class="producer-stats">' + gWines.length + 'キュヴェ</div>';
     h += '<span id="arr-' + gid + '" class="producer-arr">▶</span>';
@@ -1170,12 +1148,12 @@ function renderCellarGroup(wines, cl, sortMode) {
       h += '<div class="group-wine-row" id="row-' + w.id + '" data-id="' + w.id + '" onclick="' + rowOnclick + '" style="' + selectStyle + '">';
       h += '<div style="flex:1;min-width:0;">';
       h += '<div class="wine-name-row" style="flex-wrap:wrap;">';
-      h += '<span class="wine-name">' + w.name + '</span>';
+      h += '<span class="wine-name">' + esc(w.name) + '</span>';
       if (w.vintage) h += '<span class="wine-vintage">' + w.vintage + '</span>';
       var infoStr = '';
       if (w.price) infoStr += '\u00A5' + w.price.toLocaleString();
       if (w.purchaseDate) infoStr += (infoStr ? ' / ' : '') + w.purchaseDate;
-      if (w.supplier) infoStr += (infoStr ? ' / ' : '') + w.supplier;
+      if (w.supplier) infoStr += (infoStr ? ' / ' : '') + esc(w.supplier);
       if (infoStr) h += '<span style="font-size:11px;color:var(--text3);margin-left:6px;">' + infoStr + '</span>';
       h += '</div>';
       h += '<div class="wine-detail" id="detail-' + w.id + '"></div>';
@@ -1186,6 +1164,12 @@ function renderCellarGroup(wines, cl, sortMode) {
     h += '</div></div>';
   });
   cl.innerHTML = h;
+}
+
+// 購入日を短く（2026-10-08 → 26/10/08）。一覧で1行に収めるため
+function shortDate(d) {
+  var m = String(d || '').match(/^\d{2}(\d{2})-(\d{2})-(\d{2})/);
+  return m ? m[1] + '/' + m[2] + '/' + m[3] : esc(d);
 }
 
 function renderCellarList(wines, cl, sortMode) {
@@ -1201,21 +1185,21 @@ function renderCellarList(wines, cl, sortMode) {
     var sc = (w.stock||0)===0 ? 'badge-out' : (w.stock||0)===1 ? 'badge-low' : 'badge-ok';
     var stxt = (w.stock||0)===0 ? '在庫なし' : (w.stock||0)===1 ? '残1' : w.stock + '本';
     var meta = '';
-    if (w.producer) meta += '<span>' + w.producer + '</span>';
-    if (w.supplier) meta += '<span>' + w.supplier + '</span>';
+    if (w.producer) meta += '<span>' + esc(w.producer) + '</span>';
+    if (w.supplier) meta += '<span>' + esc(w.supplier) + '</span>';
+    if (w.purchaseDate) meta += '<span>' + shortDate(w.purchaseDate) + '</span>';
     var rowOnclick2 = selectMode ? 'toggleWineSelect(this.dataset.id,this)' : 'toggleDetail(this.dataset.id)';
     var selectStyle2 = selectMode && selectedWines[w.id] ? 'background:var(--gold-light);border-color:var(--gold);' : '';
     return '<div class="wine-row" id="row-' + w.id + '" data-id="' + w.id + '" onclick="' + rowOnclick2 + '" style="' + selectStyle2 + '">' +
       '<div>' +
-      '<div class="wine-name-row"><span class="wine-name">' + w.name + '</span>' +
+      '<div class="wine-name-row"><span class="wine-name">' + esc(w.name) + '</span>' +
       (w.vintage ? '<span class="wine-vintage">' + w.vintage + '</span>' : '') +
       '</div>' +
-      (meta ? '<div class="wine-meta">' + meta + '</div>' : '') +
+      (meta ? '<div class="wine-meta one-line">' + meta + '</div>' : '') +
       '<div class="wine-detail" id="detail-' + w.id + '"></div>' +
       '</div>' +
       '<div class="wine-right"><span class="wine-stock-badge ' + sc + '">' + stxt + '</span>' +
       (w.price ? '<div style="font-size:11px;color:var(--text3);margin-top:2px;">\u00A5' + w.price.toLocaleString() + '</div>' : '') +
-      catBadge(getCategory(w.id)) +
       '</div>' +
       '</div>';
   }).join('');
@@ -1292,28 +1276,17 @@ function toggleWineSelect(id, el) {
 }
 
 function drinkSelected() {
-  var ids = Object.keys(selectedWines);
-  if (!ids.length) { alert('ワインを選択してください'); return; }
-  if (!confirm(ids.length + '本を飲みましたか？\n在庫が各1本減り、飲酒履歴に記録されます。')) return;
+  var targets = [];
+  Object.keys(selectedWines).forEach(function(id) {
+    db.wines.forEach(function(x) { if (x.id === id && (x.stock||0) > 0) targets.push(x); });
+  });
+  if (!targets.length) { alert('在庫のあるワインを選択してください'); return; }
+  if (!confirm(targets.length + '本を飲みましたか？\n在庫が各1本減り、飲酒履歴に記録されます。')) return;
   showLoader(true);
   var today = todayStr();
   var chain = Promise.resolve();
-  ids.forEach(function(id) {
-    chain = chain.then(function() {
-      var w = null; db.wines.forEach(function(x) { if (x.id === id) w = x; });
-      if (!w || (w.stock||0) <= 0) return;
-      return gasCall('adjustStock', {id:id, delta:-1}).then(function(r) {
-        // return では次の .then が走ってしまい、サーバーに記録されていない
-        // 飲酒履歴が画面上にだけ追加されていた
-        if (r.error) throw new Error(w.name + ': ' + r.error);
-        w.stock = r.stock;
-        return gasCall('saveDrinking', {wineId:id, wineName:w.name, producer:w.producer||'', vintage:w.vintage||'', date:today, qty:1, price:w.price||0, memo:''});
-      }).then(function(r) {
-        db.drinking.push({ id:(r&&r.id)||'', wineId:id, wineName:w.name, date:today, qty:1, price:w.price||0, memo:'', producer:w.producer||'', vintage:w.vintage||'' });
-      });
-    });
-  });
-  chain.then(function() {
+  targets.forEach(function(w) { chain = chain.then(function() { return drinkOne(w, today); }); });
+  var finish = function() {
     selectedWines = {};
     selectMode = false;
     var btn = document.getElementById('btn-select-mode');
@@ -1321,7 +1294,39 @@ function drinkSelected() {
     if (btn) { btn.style.background = ''; btn.style.color = ''; }
     if (btnDrink) btnDrink.style.display = 'none';
     renderCellar(); renderDash(); showLoader(false);
-  }).catch(function(e) { alert(e.message||e); showLoader(false); });
+  };
+  // 途中で失敗しても、そこまでの結果を画面に反映して選択を解除する
+  chain.then(finish).catch(function(e) { finish(); offerDrinkRetry(e); });
+}
+
+// 1本飲んだ: 在庫を1本減らす → 飲酒履歴に記録。
+// 記録だけ失敗したときは e.stockDone を付けて投げる（押し直すと在庫が2本減るので、記録だけ送り直す）
+function drinkOne(w, today) {
+  var rec = {wineId:w.id, wineName:w.name, producer:w.producer||'', vintage:w.vintage||'', date:today, qty:1, price:w.price||0, memo:''};
+  return gasCall('adjustStock', {id:w.id, delta:-1}).then(function(r) {
+    if (r.error) throw new Error(w.name + ': ' + r.error);
+    w.stock = r.stock;
+    return saveDrinkRecord(rec);
+  });
+}
+function saveDrinkRecord(rec) {
+  return gasCall('saveDrinking', rec).then(function(r) {
+    if (r && r.error) throw new Error(r.error);
+    db.drinking.push({ id:(r && r.id) || '', wineId:rec.wineId, wineName:rec.wineName, date:rec.date, qty:1,
+      price:rec.price, memo:'', producer:rec.producer, vintage:rec.vintage });
+  }).catch(function(e) {
+    var err = new Error(rec.wineName + ': 在庫は減らしましたが、飲酒履歴の記録に失敗しました（' + (e.message || e) + '）');
+    err.stockDone = true; err.rec = rec;
+    throw err;
+  });
+}
+function offerDrinkRetry(e) {
+  if (!e || !e.stockDone) { alert((e && e.message) || e); return; }
+  if (confirm(e.message + '\n\n記録だけもう一度送りますか？（在庫はこれ以上減りません）')) {
+    showLoader(true);
+    saveDrinkRecord(e.rec).then(function() { renderDash(); showLoader(false); })
+      .catch(function(e2) { showLoader(false); alert(e2.message || e2); });
+  }
 }
 
 function drinkWine(id) {
@@ -1330,34 +1335,27 @@ function drinkWine(id) {
   if ((w.stock||0) <= 0) { alert('在庫がありません'); return; }
   if (!confirm('「' + w.name + '」を1本飲みましたか？\n在庫が1本減り、飲酒履歴に記録されます。')) return;
   showLoader(true);
-  var today = todayStr();
-  gasCall('adjustStock', {id:id, delta:-1}).then(function(r) {
-    if (r.error) { alert(r.error); showLoader(false); return Promise.reject('stock_error'); }
-    w.stock = r.stock;
-    return gasCall('saveDrinking', {wineId:id, wineName:w.name, producer:w.producer||'', vintage:w.vintage||'', date:today, qty:1, price:w.price||0, memo:''});
-  }).then(function(r) {
-    db.drinking.push({
-      id: (r && r.id) || '', wineId:id, wineName:w.name,
-      date:today, qty:1, price:w.price||0, memo:'',
-      producer: w.producer||'', vintage: w.vintage||''
-    });
-    // 在庫0でも行は残す。テイスティング等が wineId で参照しているため、
-    // 削除すると過去の記録から生産者・ヴィンテージが消える。
-    renderCellar(); renderDash(); showLoader(false);
-    // 「飲んだ」たびに画面が飛ぶと、セラーの前で2本目を探し直すことになる。
-    // renderHistorique は showPage 側でも呼ばれるので二重描画も解消。
-  }).catch(function(e) { if (e !== 'stock_error') { alert(e.message||e); } showLoader(false); });
+  // 在庫0でも行は残す。テイスティング等が wineId で参照しているため、
+  // 削除すると過去の記録から生産者・ヴィンテージが消える。
+  drinkOne(w, todayStr()).then(function() {
+    updateStockBadge(id, w.stock); renderDash(); showLoader(false);
+  }).catch(function(e) {
+    updateStockBadge(id, w.stock); renderDash(); showLoader(false);
+    offerDrinkRetry(e);
+  });
 }
 
 function sendToTerada(id) {
   var w = null; db.wines.forEach(function(x) { if (x.id === id) w = x; });
   if (!w) return;
-  if (!confirm('「' + w.name + '」を寺田倉庫に送りますか？\nCaveから削除されます。')) return;
+  if ((w.stock||0) <= 0) { alert('在庫がありません'); return; }
+  if (!confirm('「' + w.name + '」を1本、寺田倉庫に送りますか？\nCaveの在庫が1本減ります（飲んだ記録は付きません）。')) return;
   showLoader(true);
-  gasCall('deleteWine', id).then(function(r) {
+  // 以前は行ごと削除していて、3本中1本を送っても3本とも消え、テイスティングの表示も崩れていた
+  gasCall('adjustStock', {id:id, delta:-1}).then(function(r) {
     if (r.error) { alert(r.error); showLoader(false); return; }
-    db.wines = db.wines.filter(function(x) { return x.id !== id; });
-    renderCellar(); renderDash(); showLoader(false);
+    w.stock = r.stock;
+    updateStockBadge(id, r.stock); renderDash(); showLoader(false);
   }).catch(function(e) { alert(e.message); showLoader(false); });
 }
 
@@ -1374,17 +1372,14 @@ function doDeleteWine(id) {
 function showAddWine(prefill) {
   document.getElementById('wineModalTitle').textContent = 'Ajouter un vin';
   document.getElementById('w-edit-id').value = '';
-  ['name','producer','vintage','supplier','code','memo','purchaseDate'].forEach(function(f) {
+  ['name','producer','vintage','supplier','code','purchaseDate'].forEach(function(f) {
     var el = document.getElementById('w-' + f);
     if (el) el.value = (prefill && prefill[f]) || '';
   });
-  document.getElementById('w-region').value = (prefill && prefill.region) || '';
-  document.getElementById('w-appellation').value = (prefill && prefill.appellation) || '';
-  document.getElementById('w-grape').value = (prefill && prefill.grape) || '';
+  setStockEditable(true);
   document.getElementById('w-volume').value = (prefill && prefill.volume) || 750;
   document.getElementById('w-price').value = (prefill && prefill.price) || '';
   document.getElementById('w-stock').value = (prefill && prefill.stock !== undefined) ? prefill.stock : 1;
-  var wcat = document.getElementById('w-category'); if (wcat) wcat.value = (prefill && prefill.id) ? getCategory(prefill.id) : 'cave';
   document.getElementById('wineModal').classList.add('open');
 }
 
@@ -1393,11 +1388,18 @@ function editWine(id) {
   if (!w) return;
   document.getElementById('wineModalTitle').textContent = 'Modifier le vin';
   document.getElementById('w-edit-id').value = id;
-  ['name','producer','vintage','volume','price','stock','supplier','code','memo','purchaseDate'].forEach(function(f) {
+  ['name','producer','vintage','volume','price','stock','supplier','code','purchaseDate'].forEach(function(f) {
     var el = document.getElementById('w-' + f); if (el) el.value = w[f] || '';
   });
-  var wcat2 = document.getElementById('w-category'); if (wcat2) wcat2.value = getCategory(w.id);
+  // 在庫は「＋1本／－1本／飲んだ」で変える。編集で書き戻すと、開いている間に変わった本数を古い値に戻してしまう
+  setStockEditable(false);
   document.getElementById('wineModal').classList.add('open');
+}
+
+function setStockEditable(on) {
+  var el = document.getElementById('w-stock'), lb = document.getElementById('w-stock-label');
+  if (el) el.disabled = !on;
+  if (lb) lb.textContent = on ? '在庫本数' : '在庫本数（＋1本／－1本で変更）';
 }
 
 function saveWine() {
@@ -1407,25 +1409,20 @@ function saveWine() {
   var data = { id:editId||undefined, name:name,
     producer:document.getElementById('w-producer').value.trim(),
     vintage:document.getElementById('w-vintage').value, color:'白',
-    region:document.getElementById('w-region').value,
-    appellation:document.getElementById('w-appellation').value.trim(),
-    grape:document.getElementById('w-grape').value.trim(),
     volume:parseInt(document.getElementById('w-volume').value)||750,
     price:parseInt(document.getElementById('w-price').value)||0,
     stock:parseInt(document.getElementById('w-stock').value)||0,
     supplier:document.getElementById('w-supplier').value.trim(),
     code:document.getElementById('w-code').value.trim(),
-    memo:document.getElementById('w-memo').value.trim(),
     purchaseDate:document.getElementById('w-purchaseDate') ? document.getElementById('w-purchaseDate').value : '' };
   showLoader(true);
   gasCall('saveWine', data).then(function(r) {
     if (r.error) { alert(r.error); showLoader(false); return; }
     if (editId) {
       var idx = -1; db.wines.forEach(function(x,i) { if (x.id===editId) idx=i; });
+      if (r.stock !== undefined) data.stock = r.stock;   // 在庫はサーバーの今の本数
       if (idx >= 0) db.wines[idx] = Object.assign({}, db.wines[idx], data);
     } else { data.id = r.id; db.wines.push(data); }
-    var wcat3 = document.getElementById('w-category');
-    if (wcat3) saveCategory(editId || r.id, wcat3.value || 'cave');
     closeModal('wineModal'); renderCellar(); renderDash(); showLoader(false);
   }).catch(function(e) { alert(e.message); showLoader(false); });
 }
@@ -1446,14 +1443,20 @@ function showAddTasting() {
   setStar(0);
   var sel = document.getElementById('t-wine-id');
   var opts = '<option value="">-- ワインを選択 --</option>';
-  db.wines.forEach(function(w) { opts += '<option value="' + w.id + '">' + w.name + (w.vintage ? ' ' + w.vintage : '') + '</option>'; });
+  var list = db.wines.slice().sort(function(a, b) {
+    var sa = (a.stock||0) > 0 ? 0 : 1, sb = (b.stock||0) > 0 ? 0 : 1;
+    return sa - sb || String(a.name).localeCompare(String(b.name));
+  });
+  list.forEach(function(w) {
+    opts += '<option value="' + esc(w.id) + '">' + esc(w.name) + (w.vintage ? ' ' + esc(w.vintage) : '') + ((w.stock||0) > 0 ? '' : '（在庫なし）') + '</option>';
+  });
   sel.innerHTML = opts;
   document.getElementById('tastingModal').classList.add('open');
 }
 
 function addTastingFor(wineId) {
   showAddTasting();
-  setTimeout(function() { document.getElementById('t-wine-id').value = wineId; }, 50);
+  document.getElementById('t-wine-id').value = wineId;
 }
 
 function saveTasting() {
@@ -1467,7 +1470,8 @@ function saveTasting() {
     wineName = sw ? '[倉庫] ' + sw.name + (sw.vintage ? ' ' + sw.vintage : '') : rawWineId;
   } else {
     var wine = null; db.wines.forEach(function(x) { if (x.id === rawWineId) wine = x; });
-    wineName = wine ? wine.name : '';
+    var selEl = document.getElementById('t-wine-id');
+    wineName = wine ? wine.name : (selEl.options[selEl.selectedIndex] ? selEl.options[selEl.selectedIndex].dataset.name || '' : '');
   }
   var data = { id:editId||undefined, wineId:wineId, wineName:wineName,
     date:document.getElementById('t-date').value,
@@ -1521,15 +1525,15 @@ function renderTasting() {
     }
     return '<div class="tasting-card">' +
       '<div class="tc-header"><div>' +
-      '<div class="tc-name">' + nm + (w && w.vintage ? '<span style="font-size:11px;font-weight:400;font-style:normal;color:var(--text3);margin-left:7px;font-family:var(--fb);">' + w.vintage + '</span>' : '') + '</div>' +
-      (w && w.producer ? '<div style="font-size:10px;color:var(--text3);letter-spacing:0.06em;margin-top:1px;">' + w.producer + '</div>' : '') +
-      '<div class="tc-date">' + t.date + (t.scene ? ' · ' + t.scene : '') + '</div></div>' +
+      '<div class="tc-name">' + esc(nm) + (w && w.vintage ? '<span style="font-size:11px;font-weight:400;font-style:normal;color:var(--text3);margin-left:7px;font-family:var(--fb);">' + w.vintage + '</span>' : '') + '</div>' +
+      (w && w.producer ? '<div style="font-size:10px;color:var(--text3);letter-spacing:0.06em;margin-top:1px;">' + esc(w.producer) + '</div>' : '') +
+      '<div class="tc-date">' + esc(t.date) + (t.scene ? ' · ' + esc(t.scene) : '') + '</div></div>' +
       '<div style="text-align:right;flex-shrink:0;margin-left:8px;"><div class="tc-stars">' + stars + empties + '</div>' +
       '<div style="display:flex;gap:5px;margin-top:6px;justify-content:flex-end;">' +
       '<button class="btn-sm" data-id="' + t.id + '" onclick="editTasting(this.dataset.id)">編集</button>' +
       '<button class="btn-sm danger" data-id="' + t.id + '" onclick="doDeleteTasting(this.dataset.id)">削除</button>' +
       '</div></div></div>' + detail +
-      (t.comment ? '<div class="tc-note">' + t.comment + '</div>' : '') +
+      (t.comment ? '<div class="tc-note">' + esc(t.comment) + '</div>' : '') +
       '</div>';
   }).join('');
 }
@@ -1548,7 +1552,8 @@ function editTasting(id) {
   var t = null; db.tastings.forEach(function(x) { if (x.id === id) t = x; });
   if (!t) return;
   showAddTasting();
-  setTimeout(function() {
+  ensureWineOption(t.wineId, t.wineName);
+  (function() {
     document.getElementById('t-edit-id').value = id;
     document.getElementById('t-wine-id').value = t.wineId;
     document.getElementById('t-date').value = t.date;
@@ -1562,7 +1567,19 @@ function editTasting(id) {
     document.getElementById('t-taste-sweet').value = pl.sweet || '';
     document.getElementById('t-taste-detail').value = pl.detail || '';
     if (t.star) setStar(t.star);
-  }, 100);
+  })();
+}
+
+// 選択肢に無いワイン（寺田に送った・削除した）は、記録に残っている名前で選択肢を足す
+function ensureWineOption(wineId, name) {
+  var sel = document.getElementById('t-wine-id');
+  if (!wineId) return;
+  for (var i = 0; i < sel.options.length; i++) if (sel.options[i].value === wineId) return;
+  var opt = document.createElement('option');
+  opt.value = wineId;
+  opt.textContent = name || wineId;
+  opt.dataset.name = name || '';
+  sel.appendChild(opt);
 }
 
 function lookupName(text) {
@@ -1670,7 +1687,7 @@ function renderScanItems(parsed) {
       h += '<div class="scan-item" style="grid-template-columns:auto 1fr auto auto auto auto auto auto auto;">' +
         '<div class="scan-field"><label>ドメーヌ</label><input type="text" id="sd-' + i + '" value="' + displayProducer.replace(/"/g, '&quot;') + '" style="width:120px;"></div>' +
         '<div>' +
-        '<div style="font-size:10px;color:var(--text3);margin-bottom:3px;">' + (it.name||'') + badge + '</div>' +
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:3px;">' + esc(it.name) + badge + '</div>' +
         '<input type="text" id="sn-' + i + '" value="' + displayName.replace(/"/g, '&quot;') + '" style="font-size:13px;letter-spacing:0.03em;margin-bottom:4px;">' +
         '<div id="swarn-' + i + '" style="font-size:11px;"></div>' +
         '</div>' +
@@ -1824,7 +1841,7 @@ function importScan() {
         else st = '購入履歴 ✓' + (x.merged ? '（同じ日・同じワインを1行に）' : '') + ' ／ セラー ' +
           (r.cellarError ? '<span style="color:#8C3020;">未更新</span>' : (x.cellar === 'new' ? '新規' : x.cellar === 'none' ? '登録しない（購入履歴のみ）' : '在庫を追加'));
       }
-      return '<div style="font-size:12px;padding:6px 0;border-bottom:0.5px solid var(--border);">' + label + '<br>' + st + '</div>';
+      return '<div style="font-size:12px;padding:6px 0;border-bottom:0.5px solid var(--border);">' + esc(label) + '<br>' + st + '</div>';
     });
     if (res) res.innerHTML = '<div style="margin-top:12px;">' + lines.join('') + '</div>';
     if (s) s.innerHTML = '<div class="status-msg success">購入履歴：' + r.purchasesAdded + ' 件登録 ／ セラー：新規 ' + r.cellarNew +
@@ -1847,8 +1864,6 @@ function renderStorage() {
     if (area && w.area !== area) return false;
     return true;
   });
-  if (sortMode === 'price-asc') wines.sort(function(a,b) { return (parseFloat(a.purchase)||0)-(parseFloat(b.purchase)||0); });
-  if (sortMode === 'price-desc') wines.sort(function(a,b) { return (parseFloat(b.purchase)||0)-(parseFloat(a.purchase)||0); });
   var sc2 = document.getElementById('storage-count'); if (sc2) sc2.textContent = wines.length + ' / ' + storageWines.length + ' 本';
   var sl = document.getElementById('storage-list');
   if (!sl) return;
@@ -1858,25 +1873,6 @@ function renderStorage() {
   }
   if (!wines.length) {
     sl.innerHTML = '<div class="empty-state"><span class="empty-icon">🔍</span><div class="empty-title">該当なし</div></div>';
-    return;
-  }
-  if (sortMode === 'price-asc' || sortMode === 'price-desc') {
-    sl.innerHTML = wines.map(function(w) {
-      var price = w.purchase ? w.currency + ' ' + w.purchase : '';
-      return '<div class="group-wine-row" id="srow-' + w.wineId + '" data-id="' + w.wineId + '" onclick="toggleStorageDetail(this.dataset.id)">' +
-        '<div><div class="wine-name-row"><span class="wine-name">' + w.name + '</span>' +
-        (w.vintage ? '<span class="wine-vintage">' + w.vintage + '</span>' : '') + '</div>' +
-        '<div class="wine-meta">' + (w.producer ? '<span>' + w.producer + '</span>' : '') + (w.area ? '<span>' + w.area + '</span>' : '') + '</div>' +
-        '<div class="wine-detail" id="sdetail-' + w.wineId + '"><div class="detail-meta">' +
-        (w.wineId ? 'ID: ' + w.wineId : '') + (w.inboundDate ? ' · 入庫: ' + w.inboundDate : '') + '</div>' +
-        (w.durationToDrink ? '<div style="font-size:11px;color:var(--gold-dark);margin-top:4px;">飲み頃: ' + w.durationToDrink + '</div>' : '') +
-        (w.note ? '<div style="font-size:12px;color:var(--text2);margin-top:4px;">' + w.note + '</div>' : '') +
-        '<div class="wine-actions"><button class="btn-sm gold" data-id="' + w.wineId + '" onclick="event.stopPropagation();addTastingFromStorage(this.dataset.id)">テイスティング記録</button></div>' +
-        '</div></div>' +
-        '<div class="wine-right"><span class="wine-stock-badge badge-cellar">倉庫</span>' +
-        (price ? '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + price + '</div>' : '') + '</div>' +
-        '</div>';
-    }).join('');
     return;
   }
   var groups = {};
@@ -1904,20 +1900,18 @@ function renderStorage() {
     var gid = 'sgroup-' + initial + '-' + gi;
     h += '<div class="producer-group" id="' + gid + '">';
     h += '<div class="producer-header" data-gid="' + gid + '" onclick="toggleStorageGroup(this.dataset.gid)">';
-    h += '<div class="producer-name">' + (producer||'') + '</div>';
+    h += '<div class="producer-name">' + esc(producer) + '</div>';
     h += '<div style="display:flex;align-items:center;gap:10px;">';
     h += '<span id="sarr-' + gid + '" class="producer-arr">▶</span></div></div>';
     h += '<div class="producer-wines" id="swines-' + gid + '" style="display:none;">';
     gWines.forEach(function(w) {
       var det = '<div class="detail-meta">' + (w.wineId?'ID: '+w.wineId:'') + (w.volume?' · '+w.volume+'ml':'') + (w.inboundDate?' · 入庫: '+w.inboundDate:'') + '</div>';
-      if (w.durationToDrink) det += '<div style="font-size:11px;color:var(--gold-dark);margin-top:4px;">飲み頃: ' + w.durationToDrink + '</div>';
-      if (w.note) det += '<div style="font-size:12px;color:var(--text2);margin-top:4px;">' + w.note + '</div>';
+      if (w.note) det += '<div style="font-size:12px;color:var(--text2);margin-top:4px;">' + esc(w.note) + '</div>';
       det += '<div class="wine-actions"><button class="btn-sm gold" data-id="' + w.wineId + '" onclick="event.stopPropagation();addTastingFromStorage(this.dataset.id)">テイスティング記録</button></div>';
       var meta = '';
       if (w.area) meta += '<span>' + w.area + '</span>';
-      if (w.country && w.country !== 'France') meta += '<span>' + w.country + '</span>';
       h += '<div class="group-wine-row" id="srow-' + w.wineId + '" data-id="' + w.wineId + '" onclick="toggleStorageDetail(this.dataset.id)">';
-      h += '<div><div class="wine-name-row"><span class="wine-name">' + w.name + '</span>';
+      h += '<div><div class="wine-name-row"><span class="wine-name">' + esc(w.name) + '</span>';
       if (w.vintage) h += '<span class="wine-vintage">' + w.vintage + '</span>';
       h += '</div>';
       if (meta) h += '<div class="wine-meta">' + meta + '</div>';
@@ -1955,18 +1949,8 @@ function addTastingFromStorage(wineId) {
   var w = null; storageWines.forEach(function(x) { if (x.wineId === wineId) w = x; });
   if (!w) return;
   showAddTasting();
-  setTimeout(function() {
-    var sel = document.getElementById('t-wine-id');
-    var found = false;
-    Array.from(sel.options).forEach(function(o) { if (o.value === 'storage:' + wineId) found = true; });
-    if (!found) {
-      var opt = document.createElement('option');
-      opt.value = 'storage:' + wineId;
-      opt.textContent = '[倉庫] ' + w.name + (w.vintage ? ' ' + w.vintage : '');
-      sel.appendChild(opt);
-    }
-    sel.value = 'storage:' + wineId;
-  }, 60);
+  ensureWineOption('storage:' + wineId, '[倉庫] ' + w.name + (w.vintage ? ' ' + w.vintage : ''));
+  document.getElementById('t-wine-id').value = 'storage:' + wineId;
 }
 
 var _xlsxLoading = null;
@@ -2034,17 +2018,12 @@ function parseXlsx(buf) {
       var r = rows[j];
       var wineId = String(r[col('WINE ID')]||'').trim();
       if (!wineId || wineId === 'WINE ID') continue;
+      // シート（saveStorage）が使う列だけ送る
       wines.push({ wineId:wineId, name:String(r[col('WINE NAME')]||'').trim(), type:String(r[col('TYPE')]||'').trim(),
-        country:String(r[col('COUNTRY')]||'').trim(), area:String(r[col('AREA')]||'').trim(),
+        area:String(r[col('AREA')]||'').trim(),
         vintage:r[col('VINTAGE')] ? String(r[col('VINTAGE')]).trim() : '',
         producer:String(r[col('PRODUCER')]||'').trim(), volume:parseInt(r[col('VOLUME')])||750,
-        purchaseDate:String(r[col('PURCHASE DATE')]||'').trim(),
-        retailer:String(r[col('RETAILER')]||'').trim(),
-        purchase:String(r[col('PURCHASE')]||'').trim(), currency:String(r[col('CURRENCY')]||'').trim(),
-        inboundDate:String(r[col('INBOUND DATE')]||'').trim(),
-        outboundDate:String(r[col('OUTBOUND DATE')]||'').trim(),
-        durationToDrink:String(r[col('DURATION TO DRINK')]||'').trim(),
-        note:String(r[col('NOTE')]||'').trim() });
+        inboundDate:String(r[col('INBOUND DATE')]||'').trim() });
     }
     if (!wines.length) throw new Error('データが見つかりませんでした');
     // 端末ごとに持つと他の端末で見られないので、スプレッドシート「寺田倉庫」に保存して皆で同じ一覧を見る
@@ -2171,7 +2150,7 @@ function histGroupHtml(items, rowHtml) {
     var gid = 'hgroup-' + groupInitial(producer) + '-' + gi;
     h += '<div class="producer-group" id="' + gid + '">';
     h += '<div class="producer-header" data-gid="' + gid + '" onclick="toggleHistGroup(this.dataset.gid)">';
-    h += '<div class="producer-name">' + producer + '</div>';
+    h += '<div class="producer-name">' + esc(producer) + '</div>';
     h += '<div style="display:flex;align-items:center;gap:10px;"><div class="producer-stats">' + gItems.length + '本</div>';
     h += '<span id="harr-' + gid + '" class="producer-arr">▶</span></div></div>';
     h += '<div class="producer-wines" id="hwines-' + gid + '" style="display:none;">';
@@ -2187,13 +2166,13 @@ function drinkRowHtml(d) {
   var starStr = starMatch ? starMatch[1] : '';
   var comment = starMatch ? memo.replace(starMatch[0],'').trim() : memo;
   var h = '<div class="group-wine-row" style="cursor:default;"><div style="flex:1;">';
-  h += '<div class="wine-name-row"><span class="wine-name">' + (d.wineName||'') + '</span>' +
+  h += '<div class="wine-name-row"><span class="wine-name">' + esc(d.wineName) + '</span>' +
        (d.vintage ? '<span class="wine-vintage">' + d.vintage + '</span>' : '') + '</div>';
   h += '<div class="wine-meta"><span>' + (d.date||'') + '</span>';
   if (d.price) h += '<span>¥' + Number(d.price).toLocaleString() + '</span>';
   h += '</div>';
   if (comment) h += '<div style="font-size:11px;color:var(--text2);margin-top:3px;">' +
-    (starStr ? '<span style="color:var(--gold);">' + starStr + '</span> ' : '') + comment + '</div>';
+    (starStr ? '<span style="color:var(--gold);">' + starStr + '</span> ' : '') + esc(comment) + '</div>';
   return h + '</div></div>';
 }
 
@@ -2201,10 +2180,10 @@ function purchaseRowHtml(p) {
   var qty = p.qty || 1;
   var sub = (p.price || 0) * qty;
   var h = '<div class="group-wine-row" style="cursor:default;"><div style="flex:1;">';
-  h += '<div class="wine-name-row"><span class="wine-name">' + (p.wineName||'') + '</span>' +
+  h += '<div class="wine-name-row"><span class="wine-name">' + esc(p.wineName) + '</span>' +
        (p.vintage ? '<span class="wine-vintage">' + p.vintage + '</span>' : '') + '</div>';
   h += '<div class="wine-meta"><span>' + (p.date||'') + '</span>';
-  if (p.supplier) h += '<span>' + p.supplier + '</span>';
+  if (p.supplier) h += '<span>' + esc(p.supplier) + '</span>';
   h += '<span>' + qty + '本</span>';
   if (p.price) h += '<span>¥' + Number(p.price).toLocaleString() + ' / 本</span>';
   h += '</div></div>';
