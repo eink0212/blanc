@@ -154,15 +154,19 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
 | `getWinesOnly` | なし | セラーデータのみ（高速起動用） | ○（起動時） |
 | `getSubData` | なし | purchases/tastings/drinking を取得 | ○（起動後に裏で） |
 | `getNameMaster` | なし | 変換マスター取得 | ○ |
-| `saveWine` | wine オブジェクト | ワイン保存 | ○ |
+| `saveWine` | wine オブジェクト | ワイン保存（編集では在庫を書かない。在庫は adjustStock だけ） | ○ |
 | `deleteWine` | id 文字列 | ワイン削除 | ○ |
-| `adjustStock` | `{id, delta}` | 在庫増減 | ○ |
-| `savePurchase` | purchase オブジェクト | 購入履歴保存 | －（Reception は `importReception` に移行） |
+| `adjustStock` | `{id, delta}` | 在庫増減（飲んだ・寺田へ・±1本） | ○ |
 | `importReception` | `{batchId, items:[...]}` | 納品書の一括取り込み（購入履歴 → セラー） | ○ |
 | `checkReception` | `{items:[...]}` | 登録前の二重登録チェック（読み取りのみ） | ○ |
 | `saveTasting` | tasting オブジェクト | テイスティング保存 | ○ |
 | `deleteTasting` | id 文字列 | テイスティング削除 | ○ |
 | `saveDrinking` | drinking オブジェクト | 飲酒履歴保存 | ○ |
+| `getStorage` / `saveStorage` | なし / `{rows}` | 寺田倉庫シートの読み書き | ○ |
+| `getPurchaseSummary` | なし | 購入履歴の年ごとの本数・金額（トップ画面） | ○ |
+| `setPurchaseDoc` | `{batchId, year, doc}` | 取込IDの行の「書類」列を埋める | －（保守用） |
+
+書き込み系は `dispatch_` で `LockService` を取り、1つずつ実行する（importReception は自前でロック）。
 
 `Code.gs` の `apiHandlers_()` に載っていない関数は実行されない。
 関数を増やしたら `apiHandlers_()` とこの表の両方に追加すること。
@@ -173,8 +177,8 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
 `adjustStock` / `saveWine` / `savePurchase` を順番に呼んでいたため、途中の1回が
 遅れると残りが登録されず、押し直すと先頭から二重登録になっていた。
 
-- **購入履歴を先に書き、そのあとセラー。** 購入履歴は経費の記録なので優先する。
-  セラーの書き込みだけ失敗した場合は、購入履歴は残して結果に `cellarError` を返す
+- **購入履歴を先に書き、そのあとセラー。** どちらかが失敗したら、その取込IDの購入履歴を
+  取り消してエラーを返す（押し直せば最初からやり直せる）
 - 同じ取り込みの中で「同じ日・同じ仕入先・同じワイン・同じ単価」は本数をまとめて1行
 - 単価・本数・購入日の無い行は登録しない（スキップとして返す）
 - 購入履歴シートの K・L 列に**取込ID・登録日時**を書く（見出しが無ければ自動で付ける）。
@@ -190,9 +194,6 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
   購入者が違えば同じ日・同じワインでも別の行。経費に入れるのは eins の分
 - 購入履歴の行はアプリからは追加するだけで、消したり書き換えたりしない
   （「飲んだ」「削除」「寺田へ」を押しても購入履歴は変わらない）
-
-`callClaudeAPI` は API に公開していない（フロントからは呼んでおらず、
-公開すると誰でも API キーを消費できてしまうため）。
 
 ---
 
