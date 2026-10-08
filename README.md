@@ -244,9 +244,9 @@ GAS ウェブアプリに戻す（＝スマホでの見やすさを諦める）�
 
 ## メモ
 
-- `localStorage` で持っている Terada データ・nameMaster・wineCategories は
-  移行不要（そのまま動く）。ただし**保存先ドメインが変わる**ため、
-  旧 GAS 版に溜めていた内容は引き継がれない。必要なら手で移すこと。
+- Terada（保管タブ）の一覧はセラー管理の「寺田倉庫」シートが本体（どの端末でも同じ）。
+  アプリで WineList*.xlsx を読み込むとシートを作り直す（メモ・セラー在庫・セラーID は寺田IDで引き継ぐ）。
+  `localStorage` の控えは通信を待たずに描くためだけ。nameMaster・wineCategories も同様に端末の控え。
 - 日付は GAS 側で `Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd')` 済み。
 - `gas/Code.gs` はバッククォートと `//` コメントを使わない書き方で統一している
   （既存コードの流儀に合わせたもの）。`index.html` 側にこの制限はない。

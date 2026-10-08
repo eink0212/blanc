@@ -526,10 +526,6 @@ body{overflow-x:clip;min-height:100dvh}
     </select>
     <select id="storage-sort" onchange="renderStorage()" style="width:auto;font-size:10px;padding:4px 8px;">
       <option value="producer">生産者順</option>
-      <option value="price-asc">単価 安い順</option>
-      <option value="price-desc">単価 高い順</option>
-      <option value="date-asc">仕入れ日 古い順</option>
-      <option value="date-desc">仕入れ日 新しい順</option>
     </select>
   </div>
   <div id="storage-list"></div>
@@ -588,7 +584,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v11 · 2026-10-08</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v12 · 2026-10-08</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -886,6 +882,7 @@ function loadData(retryCount) {
   retryCount = retryCount || 0;
   try { var s = localStorage.getItem('storageWines'); if (s) storageWines = JSON.parse(s); } catch(e) {}
   try { var m = localStorage.getItem('nameMaster'); if (m) nameMaster = JSON.parse(m); } catch(e) {}
+  if (!retryCount) fetchStorage().catch(function() {});
   if (!retryCount) fetchNameMaster().then(function() { searchTermsCache = { q: null, terms: [] }; }).catch(function() {});   // カタカナ検索用に最新を取る
   loadCategories();
 
@@ -1980,6 +1977,19 @@ function handleXlsxUpload(e) {
   e.target.value = '';
 }
 
+function setStorageWines(rows) {
+  storageWines = rows || [];
+  try { localStorage.setItem('storageWines', JSON.stringify(storageWines)); } catch(e) {}
+  renderStorage(); renderDash();
+}
+
+// 寺田倉庫の一覧はスプレッドシートから取る（どの端末でも同じ）。端末の控えは通信を待たずに描くためだけに使う。
+function fetchStorage() {
+  return gasCall('getStorage').then(function(r) {
+    if (r && !r.error && r.rows) setStorageWines(r.rows);
+  });
+}
+
 function parseXlsx(buf) {
   var status = document.getElementById('importStatus');
   try {
@@ -2000,7 +2010,7 @@ function parseXlsx(buf) {
       var r = rows[j];
       var wineId = String(r[col('WINE ID')]||'').trim();
       if (!wineId || wineId === 'WINE ID') continue;
-      wines.push({ wineId:wineId, name:String(r[col('WINE NAME')]||'').trim(),
+      wines.push({ wineId:wineId, name:String(r[col('WINE NAME')]||'').trim(), type:String(r[col('TYPE')]||'').trim(),
         country:String(r[col('COUNTRY')]||'').trim(), area:String(r[col('AREA')]||'').trim(),
         vintage:r[col('VINTAGE')] ? String(r[col('VINTAGE')]).trim() : '',
         producer:String(r[col('PRODUCER')]||'').trim(), volume:parseInt(r[col('VOLUME')])||750,
@@ -2013,10 +2023,15 @@ function parseXlsx(buf) {
         note:String(r[col('NOTE')]||'').trim() });
     }
     if (!wines.length) throw new Error('データが見つかりませんでした');
-    storageWines = wines;
-    localStorage.setItem('storageWines', JSON.stringify(storageWines));
-    status.innerHTML = '<div class="status-msg success">' + wines.length + ' 本を読み込みました（' + new Date().toLocaleDateString('ja-JP') + ' 更新）</div>';
-    renderStorage(); renderDash();
+    // 端末ごとに持つと他の端末で見られないので、スプレッドシート「寺田倉庫」に保存して皆で同じ一覧を見る
+    status.innerHTML = '<div class="status-msg loading">' + wines.length + ' 本をスプレッドシートに保存中...</div>';
+    gasCall('saveStorage', { rows: wines }, 60000).then(function(r) {
+      if (!r || r.error) throw new Error((r && r.error) || '保存できませんでした');
+      setStorageWines(r.storage.rows);
+      status.innerHTML = '<div class="status-msg success">' + r.count + ' 本を保存しました。どの端末でもこの一覧が見られます</div>';
+    }).catch(function(err) {
+      status.innerHTML = '<div class="status-msg error">エラー: ' + err.message + '</div>';
+    });
   } catch(err) {
     status.innerHTML = '<div class="status-msg error">エラー: ' + err.message + '</div>';
   }

@@ -696,6 +696,63 @@ function fillWineIds() {
  *  Web API レイヤー（GitHub Pages のフロントから呼ばれる）
  * ============================================================== */
 
+/* ===== 寺田倉庫（「寺田倉庫」シート。保管タブがどの端末でも同じ一覧を出すため） ===== */
+var STORAGE_SHEET = '寺田倉庫';
+var STORAGE_HEAD = ['寺田ID', '生産者', 'ワイン名', 'ヴィンテージ', '色', '産地', '容量', '入庫日', 'セラー在庫', 'セラーID', 'メモ'];
+
+/** 見出し行（A列が「寺田ID」の行）の行番号。無ければ -1 */
+function storageHeadRow_(sh) {
+  var n = Math.min(10, sh.getLastRow());
+  var a = n > 0 ? sh.getRange(1, 1, n, 1).getValues() : [];
+  for (var i = 0; i < a.length; i++) if (String(a[i][0]).trim() === '寺田ID') return i + 1;
+  return -1;
+}
+
+function getStorage() {
+  var sh = getSpreadsheet().getSheetByName(STORAGE_SHEET);
+  if (!sh) return { rows: [] };
+  var hr = storageHeadRow_(sh);
+  if (hr < 0 || sh.getLastRow() <= hr) return { rows: [] };
+  var v = sh.getRange(hr + 1, 1, sh.getLastRow() - hr, STORAGE_HEAD.length).getDisplayValues();
+  var rows = [];
+  v.forEach(function (r) {
+    if (!String(r[0]).trim()) return;
+    rows.push({ wineId: r[0], producer: r[1], name: r[2], vintage: r[3], color: r[4], area: r[5],
+                volume: parseInt(r[6], 10) || 750, inboundDate: r[7], cellarStock: r[8], note: r[10] });
+  });
+  return { rows: rows, title: String(sh.getRange(1, 1).getValue()) };
+}
+
+/**
+ * 寺田の WineList（アプリで読み込んだもの）でシートを作り直す。
+ * メモ・セラー在庫・セラーID は同じ寺田IDの行から引き継ぐ。
+ */
+function saveStorage(arg) {
+  var items = (arg && arg.rows) || [];
+  if (!items.length) return { error: '寺田のリストが空です' };
+  var sh = getSpreadsheet().getSheetByName(STORAGE_SHEET);
+  if (!sh) return { error: '「' + STORAGE_SHEET + '」シートがありません' };
+  var hr = storageHeadRow_(sh);
+  if (hr < 0) return { error: '「' + STORAGE_SHEET + '」シートの見出し行が見つかりません' };
+  var old = {};
+  if (sh.getLastRow() > hr) {
+    sh.getRange(hr + 1, 1, sh.getLastRow() - hr, STORAGE_HEAD.length).getValues().forEach(function (r) {
+      if (r[0]) old[String(r[0])] = [r[8], r[9], r[10]];
+    });
+  }
+  var TYPE = { 'White wine': '白', 'Red wine': '赤', 'Sweet wine': '甘口', 'Sparkling wine': '泡', 'Rose wine': 'ロゼ' };
+  var out = items.map(function (w) {
+    var id = String(w.wineId || '').trim(), keep = old[id] || ['', '', ''];
+    return [id, String(w.producer || ''), String(w.name || ''), String(w.vintage || ''), TYPE[w.type] || String(w.type || ''),
+            String(w.area || ''), parseInt(w.volume, 10) || 750, String(w.inboundDate || ''), keep[0], keep[1], keep[2]];
+  });
+  if (sh.getLastRow() > hr) sh.getRange(hr + 1, 1, sh.getLastRow() - hr, STORAGE_HEAD.length).clearContent();
+  sh.getRange(hr + 1, 4, out.length, 1).setNumberFormat('@');
+  sh.getRange(hr + 1, 1, out.length, STORAGE_HEAD.length).setValues(out);
+  sh.getRange(1, 1).setValue('寺田倉庫の在庫（' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd') + ' の WineList から）');
+  return { ok: true, count: out.length, storage: getStorage() };
+}
+
 /**
  * 合言葉。index.html の API_TOKEN と同じ文字列にすること。
  * 読み取りは合言葉なしで通し、書き込み系だけ必須にしている。
@@ -708,7 +765,7 @@ function fillWineIds() {
 var API_TOKEN = 'blanc-GSAIae2Dt40P';
 
 /** doGet（JSONP フォールバック）で許可する読み取り専用の関数 */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception'];
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
@@ -725,7 +782,9 @@ function apiHandlers_() {
     checkReception:  function (arg) { return checkReception(arg); },
     saveTasting:   function (arg) { return saveTasting(arg); },
     deleteTasting: function (arg) { return deleteTasting(arg); },
-    saveDrinking:  function (arg) { return saveDrinking(arg); }
+    saveDrinking:  function (arg) { return saveDrinking(arg); },
+    getStorage:    function (arg) { return getStorage(); },
+    saveStorage:   function (arg) { return saveStorage(arg); }
   };
 }
 
