@@ -588,7 +588,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v10 · 2026-10-04</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v11 · 2026-10-08</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -886,6 +886,7 @@ function loadData(retryCount) {
   retryCount = retryCount || 0;
   try { var s = localStorage.getItem('storageWines'); if (s) storageWines = JSON.parse(s); } catch(e) {}
   try { var m = localStorage.getItem('nameMaster'); if (m) nameMaster = JSON.parse(m); } catch(e) {}
+  if (!retryCount) fetchNameMaster().then(function() { searchTermsCache = { q: null, terms: [] }; }).catch(function() {});   // カタカナ検索用に最新を取る
   loadCategories();
 
   // ① キャッシュがあれば通信を待たずに描く。オフラインでも一覧が見える。
@@ -991,7 +992,7 @@ function renderCellar() {
   var q = (document.getElementById('cellar-search').value || '').toLowerCase();
   var reg = document.getElementById('cellar-region').value;
   var wines = db.wines.filter(function(w) {
-    if (q && w.name.toLowerCase().indexOf(q) < 0 && (w.producer||'').toLowerCase().indexOf(q) < 0) return false;
+    if (!matchQ(q, [w.name, w.producer])) return false;
     // if (reg && w.region !== reg) return false; // 産地列廃止
     if (stockFilter === 'in' && (w.stock||0) < 1) return false;   // 「在庫あり」は1本以上
     if (stockFilter === 'low' && (w.stock||0) !== 1) return false;
@@ -1821,7 +1822,7 @@ function renderStorage() {
   var area = document.getElementById('storage-area').value;
   var sortMode = document.getElementById('storage-sort') ? document.getElementById('storage-sort').value : 'producer';
   var wines = storageWines.filter(function(w) {
-    if (q && w.name.toLowerCase().indexOf(q) < 0 && (w.producer||'').toLowerCase().indexOf(q) < 0) return false;
+    if (!matchQ(q, [w.name, w.producer])) return false;
     if (area && w.area !== area) return false;
     return true;
   });
@@ -2066,12 +2067,33 @@ function renderHistorique() {
 // 検索 → 並び替え。従来は price-asc / price-desc が丸ごと重複した
 // 描画ブロックを持ち、空状態チェックの手前で return していたため、
 // 価格順を選ぶと0件のとき真っ白になっていた。日付順は未実装だった。
+// 検索語にカタカナ・漢字が入っていたら、変換マスターの別名から正式名も探す
+// （例:「ダイス」→ Domaine Marcel Deiss）。シートは英語名なので、そのままでは当たらない。
+var searchTermsCache = { q: null, terms: [] };
+function searchTerms(q) {
+  if (searchTermsCache.q === q) return searchTermsCache.terms;
+  var terms = q ? [q] : [];
+  if (q && /[぀-ヿ一-鿿ｦ-ﾟ]/.test(q)) {
+    var qn = q.replace(/[\s　・･]/g, '');
+    (nameMaster.domaine || []).concat(nameMaster.wine || []).forEach(function(m) {
+      var a = String(m.alias || '').toLowerCase().replace(/[\s　・･]/g, '');
+      var o = String(m.official || '').toLowerCase();
+      if (o && a.indexOf(qn) >= 0 && terms.indexOf(o) < 0) terms.push(o);
+    });
+  }
+  searchTermsCache = { q: q, terms: terms };
+  return terms;
+}
+function matchQ(q, fields) {
+  if (!q) return true;
+  return searchTerms(q).some(function(t) {
+    return fields.some(function(f) { return String(f || '').toLowerCase().indexOf(t) >= 0; });
+  });
+}
+
 function histFilterSort(items, q, sortMode, dateKey) {
   var out = items.filter(function(d) {
-    if (!q) return true;
-    return (d.wineName||'').toLowerCase().indexOf(q) >= 0 ||
-           (d.producer||'').toLowerCase().indexOf(q) >= 0 ||
-           (d.supplier||'').toLowerCase().indexOf(q) >= 0;
+    return matchQ(q, [d.wineName, d.producer, d.supplier]);
   });
   if (sortMode === 'price-asc')  out.sort(function(a,b) { return (a.price||0)-(b.price||0); });
   if (sortMode === 'price-desc') out.sort(function(a,b) { return (b.price||0)-(a.price||0); });
