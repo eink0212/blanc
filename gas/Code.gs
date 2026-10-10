@@ -741,6 +741,108 @@ function deleteEvent(id) {
   return before === ss.getSheetByName('開催').getLastRow() ? { error: '対象が見つかりません' } : { ok: true };
 }
 
+/* ===== 築地の仕入れ（ワイン会収支のファイルの「築地仕入れ」「店名」シート） =====
+ * 1回の買い物の1店＝1行。どの会の分かは「会ID」で持つ（入力時に選ぶ。空なら未割り当て）
+ * 区分: A＝アインズワイン / T＝てる（てるシェフに渡す分。会の食費は ¥10,000 で別に記録）/ 他
+ */
+var TJ_HEAD = ['ID', '日付', '店', '金額', '区分', '会ID', '会の名前', 'メモ', '登録日時'];
+
+function tsukijiSheets_(ss) {
+  var DARK = '#1A1916', GOLD = '#C8A84B';
+  var sh = ss.getSheetByName('築地仕入れ');
+  if (!sh) {
+    sh = ss.insertSheet('築地仕入れ');
+    sh.getRange(1, 1, 1, TJ_HEAD.length).setValues([TJ_HEAD]).setBackground(DARK).setFontColor(GOLD).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    [130, 90, 150, 80, 50, 130, 160, 220, 140].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+    sh.getRange('B:B').setNumberFormat('yyyy/mm/dd');
+    sh.getRange('D:D').setNumberFormat('¥#,##0');
+  }
+  var ms = ss.getSheetByName('店名');
+  if (!ms) {
+    ms = ss.insertSheet('店名');
+    ms.getRange(1, 1, 1, 3).setValues([['店名', '回数', '最後に行った日']]).setBackground(DARK).setFontColor(GOLD).setFontWeight('bold');
+    ms.setFrozenRows(1);
+    ms.setColumnWidth(1, 180); ms.setColumnWidth(3, 120);
+  }
+  return { rows: sh, shops: ms };
+}
+
+/** 店名シートの式（回数・最後に行った日）を付け直す */
+function tjShopFormulas_(ms) {
+  var n = ms.getLastRow() - 1;
+  if (n < 1) return;
+  var f = [];
+  for (var r = 2; r <= n + 1; r++) {
+    f.push(['=IF(A' + r + '="","",COUNTIF(\'築地仕入れ\'!C:C,A' + r + '))',
+            '=IF(A' + r + '="","",IFERROR(MAXIFS(\'築地仕入れ\'!B:B,\'築地仕入れ\'!C:C,A' + r + '),""))']);
+  }
+  ms.getRange(2, 2, n, 2).setFormulas(f);
+  ms.getRange(2, 3, n, 1).setNumberFormat('yyyy/mm/dd');
+}
+
+/** 築地の仕入れ全部と店の一覧（よく行く順） */
+function getTsukiji() {
+  var ss = eventsBook_(false);
+  if (!ss || !ss.getSheetByName('築地仕入れ')) return { rows: [], shops: [] };
+  var t = tsukijiSheets_(ss);
+  var rows = evRows_(t.rows).filter(function (r) { return r[0]; }).map(function (r) {
+    return { id: String(r[0]), date: dateStr_(r[1]), shop: String(r[2]), amount: Number(r[3]) || 0, tag: String(r[4] || ''),
+             eventId: String(r[5] || ''), memo: String(r[7] || '') };
+  });
+  var cnt = {};
+  rows.forEach(function (r) { if (r.date >= '2025-01-01') cnt[r.shop] = (cnt[r.shop] || 0) + 1; });
+  var shops = evRows_(t.shops).map(function (r) { return String(r[0]); }).filter(function (s) { return s; });
+  shops.sort(function (a, b) { return (cnt[b] || 0) - (cnt[a] || 0); });
+  return { rows: rows, shops: shops };
+}
+
+/**
+ * 仕入れを保存する。arg: { rows:[{id?, date, shop, amount, tag, eventId, memo}] }
+ * id があればその行を書き換え、無ければ足す。知らない店は店名シートに足す。
+ */
+function saveTsukiji(arg) {
+  var list = (arg && arg.rows) || [];
+  if (!list.length) return { error: '保存する行がありません' };
+  var ss = eventsBook_(true), t = tsukijiSheets_(ss);
+  var names = {};
+  evRows_(ss.getSheetByName('開催')).forEach(function (r) { names[String(r[0])] = String(r[2]); });
+  var v = evRows_(t.rows), at = {};
+  v.forEach(function (r, i) { at[String(r[0])] = i + 2; });
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  var add = [], ids = [], shopsKnown = {};
+  evRows_(t.shops).forEach(function (r) { shopsKnown[String(r[0])] = true; });
+  var newShops = [];
+  for (var k = 0; k < list.length; k++) {
+    var x = list[k], m = String(x.date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    var shop = String(x.shop || '').trim();
+    if (!m || !shop) return { error: '日付と店名が必要です（' + (k + 1) + '行目）' };
+    var rec = [x.id || uid(), new Date(+m[1], +m[2] - 1, +m[3]), shop, Number(x.amount) || 0, String(x.tag || ''),
+               String(x.eventId || ''), names[String(x.eventId || '')] || '', String(x.memo || ''), now];
+    if (x.id) {
+      if (!at[x.id]) return { error: '対象の行が見つかりません: ' + x.id };
+      rec[8] = t.rows.getRange(at[x.id], 9).getValue() || now;
+      t.rows.getRange(at[x.id], 1, 1, TJ_HEAD.length).setValues([rec]);
+    } else add.push(rec);
+    ids.push(rec[0]);
+    if (!shopsKnown[shop]) { shopsKnown[shop] = true; newShops.push([shop]); }
+  }
+  if (add.length) t.rows.getRange(t.rows.getLastRow() + 1, 1, add.length, TJ_HEAD.length).setValues(add);
+  if (newShops.length) {
+    t.shops.getRange(t.shops.getLastRow() + 1, 1, newShops.length, 1).setValues(newShops);
+    tjShopFormulas_(t.shops);
+  }
+  return { ok: true, ids: ids, newShops: newShops.length };
+}
+
+function deleteTsukiji(id) {
+  var ss = eventsBook_(false);
+  if (!ss || !ss.getSheetByName('築地仕入れ') || !id) return { error: '対象が見つかりません' };
+  var sh = ss.getSheetByName('築地仕入れ'), before = sh.getLastRow();
+  evDeleteRows_(sh, String(id));
+  return before === sh.getLastRow() ? { error: '対象が見つかりません' } : { ok: true };
+}
+
 /* ===== 寺田倉庫（「寺田倉庫」シート。保管タブがどの端末でも同じ一覧を出すため） ===== */
 var STORAGE_SHEET = '寺田倉庫';
 var STORAGE_HEAD = ['寺田ID', '生産者', 'ワイン名', 'ヴィンテージ', '色', '産地', '容量', '入庫日', 'セラー在庫', 'セラーID', 'メモ'];
@@ -817,7 +919,7 @@ function appPassword_() {
 }
 
 /** 読み取りだけの関数（書き込みのロックを取らない） */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents'];
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents', 'getTsukiji'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
@@ -840,6 +942,9 @@ function apiHandlers_() {
     getEvents:     function (arg) { return getEvents(); },
     saveEvent:     function (arg) { return saveEvent(arg); },
     deleteEvent:   function (arg) { return deleteEvent(arg); },
+    getTsukiji:    function (arg) { return getTsukiji(); },
+    saveTsukiji:   function (arg) { return saveTsukiji(arg); },
+    deleteTsukiji: function (arg) { return deleteTsukiji(arg); },
     saveStorage:   function (arg) { return saveStorage(arg); },
     setPurchaseDoc: function (arg) { return setPurchaseDoc(arg); }
   };

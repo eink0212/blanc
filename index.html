@@ -614,13 +614,17 @@ body{overflow-x:clip;min-height:100dvh}
   <div id="ev-stats" class="stat-grid"></div>
   <div class="sec-header">
     <div class="sec-title">Soirées</div>
-    <button class="btn btn-primary" style="font-size:10px;padding:6px 14px;" onclick="openEvent()">+ 新しい会</button>
+    <span style="display:flex;gap:6px;">
+      <button class="btn btn-outline" style="font-size:10px;padding:6px 12px;" onclick="openTsukiji()">+ 築地の仕入れ</button>
+      <button class="btn btn-primary" style="font-size:10px;padding:6px 14px;" onclick="openEvent()">+ 新しい会</button>
+    </span>
   </div>
+  <div id="tj-recent"></div>
   <div id="ev-list"></div>
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v16 · 2026-10-10</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v17 · 2026-10-10</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -660,6 +664,7 @@ body{overflow-x:clip;min-height:100dvh}
     <div id="ev-people"></div>
     <div class="ev-sec">費用 <span style="display:flex;gap:6px;"><button class="btn-sm gold" onclick="openWinePick()">＋ セラーのワイン</button><button class="btn-sm" onclick="evAddCost()">＋ 費用</button></span></div>
     <div id="ev-costs"></div>
+    <div id="ev-tsukiji"></div>
     <div class="ev-total" id="ev-total"></div>
     <div class="form-grid" style="margin-top:12px;">
       <div class="form-group full"><label>料理</label><textarea id="ev-dishes" rows="3"></textarea></div>
@@ -682,6 +687,27 @@ body{overflow-x:clip;min-height:100dvh}
     <input type="text" id="wp-q" placeholder="ワイン名・生産者（カタカナも可）" oninput="renderWinePick()" style="width:100%;margin-bottom:8px;">
     <label style="font-size:12px;color:var(--text2);display:flex;gap:6px;align-items:center;margin-bottom:8px;"><input type="checkbox" id="wp-drink" checked style="width:auto;"> 「飲んだ」にする（在庫を1本減らし、飲酒履歴に記録）</label>
     <div id="wp-list" style="max-height:55vh;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<!-- ── 築地の仕入れ ── -->
+<div class="modal-overlay" id="tsukijiModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('tsukijiModal')">&#10005;</button>
+    <div class="modal-title">築地の仕入れ</div>
+    <div class="form-grid">
+      <div class="form-group"><label>日付</label><input type="date" id="tj-date" onchange="tjEventOptions()"></div>
+      <div class="form-group"><label>区分</label><select id="tj-tag"><option value="A">A（アインズワイン）</option><option value="T">T（てる）</option></select></div>
+      <div class="form-group full"><label>どの会の分</label><select id="tj-event"></select></div>
+    </div>
+    <div class="ev-sec">お店と金額 <button class="btn-sm" onclick="tjAddRow()">＋ 店</button></div>
+    <datalist id="tj-shops"></datalist>
+    <div id="tj-rows"></div>
+    <div class="ev-total" style="grid-template-columns:1fr;"><div>合計<b id="tj-total">¥0</b></div></div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeModal('tsukijiModal')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveTsukijiUI()">Enregistrer</button>
+    </div>
   </div>
 </div>
 
@@ -1065,7 +1091,7 @@ function showPage(id) {
   if (id === 'storage') renderStorage();
   if (id === 'tasting') { ensureSubData(); renderTasting(); }
   if (id === 'historique') { ensureSubData(); renderHistorique(); }
-  if (id === 'soiree') { renderEvents(); fetchEvents(); }
+  if (id === 'soiree') { renderEvents(); renderTsukijiRecent(); fetchEvents(); fetchTsukiji(); }
 }
 
 function renderDash() {
@@ -2187,7 +2213,7 @@ function fetchEvents() {
     if (!r || r.error || !r.events) return;
     evData = r.events;
     try { localStorage.setItem('eventsCache', JSON.stringify(evData)); } catch(e) {}
-    renderEvents();
+    renderEvents(); renderTsukijiRecent();
   }).catch(function() { evFetching = false; });
 }
 
@@ -2195,13 +2221,13 @@ function renderEvents() {
   var list = document.getElementById('ev-list'), st = document.getElementById('ev-stats');
   if (!list) return;
   if (!evData) { list.innerHTML = '<div class="empty-state"><div class="empty-title">読み込み中…</div></div>'; return; }
-  var y = String(new Date().getFullYear()), n = 0, inc = 0, cost = 0;
-  evData.forEach(function(e) { if (e.status === '実施' && e.date.slice(0, 4) === y) { n++; inc += e.income; cost += e.cost; } });
+  var y = String(new Date().getFullYear()), n = 0, nt = 0, inc = 0, cost = 0;
+  evData.forEach(function(e) { if (e.status === '実施' && e.date.slice(0, 4) === y) { if (e.name === '試食会') nt++; else n++; inc += e.income; cost += e.cost; } });
   var card = function(label, value, sub) {
     return '<div class="stat-card" style="cursor:default;"><div class="stat-label">' + label + '</div><div class="stat-value" style="font-size:20px;">' + value + '</div>' +
       (sub ? '<div style="font-size:10px;color:var(--text3);margin-top:4px;">' + sub + '</div>' : '') + '</div>';
   };
-  if (st) st.innerHTML = card(y + ' 回数', n + '回') + card('収入', yen(inc)) + card('費用', yen(cost)) +
+  if (st) st.innerHTML = card(y + ' ワイン会', n + '回', nt ? '試食会 ' + nt + '回' : '') + card('収入', yen(inc)) + card('費用', yen(cost)) +
     card('利益', yen(inc - cost), inc ? Math.round((inc - cost) / inc * 100) + '%' : '');
   if (!evData.length) { list.innerHTML = '<div class="empty-state"><span class="empty-icon">🍷</span><div class="empty-title">まだ記録がありません</div><div class="empty-sub">「＋ 新しい会」から追加できます</div></div>'; return; }
   var h = '', month = '';
@@ -2271,6 +2297,7 @@ function renderEventLines() {
   });
   document.getElementById('ev-costs').innerHTML = ch || '<div style="font-size:12px;color:var(--text3);">費用なし</div>';
   evTotals();
+  renderEventTsukiji();
 }
 
 function evTotals() {
@@ -2366,6 +2393,139 @@ function evTasting(i) {
   document.getElementById('t-wine-id').value = c.wineId;
   if (date) document.getElementById('t-date').value = date;
   document.getElementById('t-scene').value = scene;
+}
+
+
+// ══ 築地の仕入れ ══
+// 1回の買い物の1店＝1行。どの会の分かを選ぶ（会の日の3日前まで）。試食会はその場で作れる
+var tjData = null;
+try { tjData = JSON.parse(localStorage.getItem('tsukijiCache') || 'null'); } catch(e) {}
+var tjLines = [];
+
+function fetchTsukiji() {
+  return gasCall('getTsukiji').then(function(r) {
+    if (!r || r.error || !r.rows) return;
+    tjData = r;
+    try { localStorage.setItem('tsukijiCache', JSON.stringify(r)); } catch(e) {}
+    renderTsukijiRecent();
+  }).catch(function() {});
+}
+
+function tjEventName(id) {
+  var n = ''; (evData || []).forEach(function(e) { if (e.id === id) n = e.name + '（' + e.date.slice(5).replace('-', '/') + '）'; });
+  return n;
+}
+
+// 直近3回分の買い物（日付ごと）。会に割り当てていないものが分かるように
+function renderTsukijiRecent() {
+  var el = document.getElementById('tj-recent');
+  if (!el || !tjData) return;
+  var byDate = {}, order = [];
+  tjData.rows.forEach(function(r) {
+    var k = r.date + '|' + r.eventId;
+    if (!byDate[k]) { byDate[k] = { date: r.date, eventId: r.eventId, total: 0, n: 0 }; order.push(k); }
+    byDate[k].total += r.amount; byDate[k].n++;
+  });
+  order.sort(function(a, b) { return b < a ? -1 : 1; });
+  var h = order.slice(0, 3).map(function(k) {
+    var g = byDate[k];
+    return '<div class="ev-sub" style="padding:2px 2px;">築地 ' + g.date.slice(5).replace('-', '/') + '　' + yen(g.total) + '（' + g.n + '店）　→ ' +
+      (g.eventId ? esc(tjEventName(g.eventId) || '会') : '<span style="color:#8C3020;">会に未割り当て</span>') + '</div>';
+  }).join('');
+  el.innerHTML = h ? '<div style="margin:0 0 10px;">' + h + '</div>' : '';
+}
+
+function openTsukiji() {
+  document.getElementById('tj-date').value = todayStr();
+  document.getElementById('tj-tag').value = 'A';
+  document.getElementById('tj-shops').innerHTML = ((tjData && tjData.shops) || []).map(function(s) { return '<option value="' + esc(s) + '">'; }).join('');
+  tjLines = [{ shop: '', amount: '' }];
+  tjEventOptions();
+  renderTjRows();
+  document.getElementById('tsukijiModal').classList.add('open');
+}
+
+// 会の選択肢: 仕入れ日〜3日後の会。無ければ「試食会を作る」が最初
+function tjEventOptions() {
+  var d = document.getElementById('tj-date').value || todayStr();
+  var t0 = new Date(d + 'T00:00:00').getTime(), opts = [];
+  (evData || []).forEach(function(e) {
+    var days = (new Date(e.date + 'T00:00:00').getTime() - t0) / 86400000;
+    if (days >= 0 && days <= 3) opts.push(e);
+  });
+  opts.sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+  var h = opts.map(function(e) { return '<option value="' + esc(e.id) + '">' + esc(e.name) + '（' + e.date.slice(5).replace('-', '/') + '）</option>'; }).join('');
+  h += '<option value="new">試食会を作る（' + d.slice(5).replace('-', '/') + '）</option><option value="">あとで決める</option>';
+  document.getElementById('tj-event').innerHTML = h;
+}
+
+function readTjRows() {
+  tjLines.forEach(function(l, i) {
+    l.shop = document.getElementById('tj-s-' + i).value;
+    l.amount = document.getElementById('tj-a-' + i).value;
+  });
+}
+function renderTjRows() {
+  document.getElementById('tj-rows').innerHTML = tjLines.map(function(l, i) {
+    return '<div class="ev-line"><input id="tj-s-' + i + '" list="tj-shops" value="' + esc(l.shop) + '" placeholder="店（選ぶか入力）">' +
+      '<input id="tj-a-' + i + '" type="number" inputmode="numeric" value="' + esc(l.amount) + '" placeholder="金額" oninput="tjTotal()">' +
+      '<button class="x" onclick="tjRemove(' + i + ')">✕</button></div>';
+  }).join('');
+  tjTotal();
+}
+function tjTotal() {
+  var t = 0;
+  tjLines.forEach(function(l, i) { var el = document.getElementById('tj-a-' + i); t += parseInt(el && el.value, 10) || 0; });
+  document.getElementById('tj-total').textContent = yen(t);
+  return t;
+}
+function tjAddRow() { readTjRows(); tjLines.push({ shop: '', amount: '' }); renderTjRows(); var el = document.getElementById('tj-s-' + (tjLines.length - 1)); if (el) el.focus(); }
+function tjRemove(i) { readTjRows(); tjLines.splice(i, 1); if (!tjLines.length) tjLines.push({ shop: '', amount: '' }); renderTjRows(); }
+
+function saveTsukijiUI() {
+  readTjRows();
+  var date = document.getElementById('tj-date').value, tag = document.getElementById('tj-tag').value;
+  var ev = document.getElementById('tj-event').value;
+  var lines = tjLines.filter(function(l) { return String(l.shop).trim() && parseInt(l.amount, 10) > 0; });
+  if (!date || !lines.length) { alert('日付と、お店・金額を入れてください'); return; }
+  var total = lines.reduce(function(s, l) { return s + parseInt(l.amount, 10); }, 0);
+  showLoader(true);
+  // 試食会を作る場合は、先に会を作って食費（築地仕入れ）を入れる
+  var first = ev === 'new'
+    ? gasCall('saveEvent', { date: date, name: '試食会', status: '実施', memo: '', dishes: '', people: [],
+        costs: [{ cat: '食費', desc: '築地仕入れ', amount: total }] }).then(function(r) { if (r.error) throw new Error(r.error); return r.id; })
+    : Promise.resolve(ev);
+  first.then(function(eventId) {
+    return gasCall('saveTsukiji', { rows: lines.map(function(l) {
+      return { date: date, shop: String(l.shop).trim(), amount: parseInt(l.amount, 10), tag: tag, eventId: eventId, memo: '' };
+    }) });
+  }).then(function(r) {
+    if (r.error) throw new Error(r.error);
+    closeModal('tsukijiModal'); showLoader(false);
+    fetchEvents(); fetchTsukiji();
+  }).catch(function(e) { alert(e.message || e); showLoader(false); });
+}
+
+// 会の画面に、その会に割り当てた築地の仕入れを出す。「食費に反映」で費用の「築地仕入れ」を合計にそろえる
+function renderEventTsukiji() {
+  var el = document.getElementById('ev-tsukiji');
+  if (!el) return;
+  var rows = (tjData && evDraft && evDraft.id) ? tjData.rows.filter(function(r) { return r.eventId === evDraft.id; }) : [];
+  if (!rows.length) { el.innerHTML = ''; return; }
+  var t = rows.reduce(function(s, r) { return s + r.amount; }, 0);
+  el.innerHTML = '<div class="ev-sec">築地の仕入れ ' + yen(t) + ' <button class="btn-sm" onclick="evApplyTsukiji(' + t + ')">食費に反映</button></div>' +
+    '<div class="ev-sub" style="white-space:normal;line-height:1.7;">' + rows.map(function(r) {
+      return esc(r.date.slice(5).replace('-', '/')) + ' ' + esc(r.shop) + ' ' + yen(r.amount) + (r.tag === 'T' ? '（T）' : '');
+    }).join('　') + '</div>';
+}
+function evApplyTsukiji(total) {
+  readEventLines();
+  var c = null; evDraft.costs.forEach(function(x) { if (x.desc === '築地仕入れ') c = x; });
+  // 「築地仕入れ」の行が無く、手で入れた「食費」の行があれば、それを置き換えるか聞く（二重に入れない）
+  if (!c) evDraft.costs.forEach(function(x) { if (!c && x.cat === '食費' && /^食費/.test(x.desc || '')) c = x; });
+  if (c && c.desc !== '築地仕入れ' && !confirm('「' + c.desc + '」' + yen(c.amount) + ' を築地の合計 ' + yen(total) + ' に置き換えますか？')) return;
+  if (c) { c.desc = '築地仕入れ'; c.amount = total; } else evDraft.costs.push({ cat: '食費', desc: '築地仕入れ', amount: total });
+  renderEventLines();
 }
 
 // ══ Historique：「飲んだ」と「買った」の2ビュー ══
