@@ -669,22 +669,25 @@ function saveStorage(arg) {
 }
 
 /**
- * 合言葉。index.html の API_TOKEN と同じ文字列にすること。
- * 読み取りは合言葉なしで通し、書き込み系だけ必須にしている。
+ * パスワード。スクリプトプロパティ APP_PASSWORD に保存する（コードは GitHub で公開されているので書かない）。
+ * 読み取りも書き込みも、すべての呼び出しで必須。アプリは端末ごとに一度入力して保存する。
  *
  * この構成ではアクセス権を「自分のみ」にできない。
  * 「自分のみ」だと GAS は accounts.google.com へリダイレクトし、
  * そこには CORS ヘッダーが無いためブラウザが fetch を打ち切る。
- * よってデプロイは「全員」固定で、保護はこの合言葉で行う。
+ * よってデプロイは「全員」固定で、保護はこのパスワードで行う。
  */
-var API_TOKEN = 'blanc-GSAIae2Dt40P';
+function appPassword_() {
+  return PropertiesService.getScriptProperties().getProperty('APP_PASSWORD') || '';
+}
 
-/** doGet（JSONP フォールバック）で許可する読み取り専用の関数 */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary'];
+/** 読み取りだけの関数（書き込みのロックを取らない） */
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
   return {
+    checkPass:     function (arg) { return { ok: true }; },
     getAllData:    function (arg) { return getAllData(); },
     getWinesOnly:  function (arg) { return getWinesOnly(); },
     getSubData:    function (arg) { return getSubData(); },
@@ -733,7 +736,7 @@ function doPost(e) {
 /**
  * GET。用途は 2 つ。
  *   1. 疎通確認 … デプロイ URL をブラウザで開くと { ok: true, data: 'pong' }
- *   2. JSONP フォールバック … ?fn=getAllData&callback=cb（読み取り関数のみ）
+ * それ以外は GET では受けない（パスワードが URL に残るため）。
  */
 function doGet(e) {
   var p = (e && e.parameter) || {};
@@ -742,20 +745,8 @@ function doGet(e) {
 
   if (fn === 'ping') {
     res = { ok: true, data: 'pong' };
-  } else if (READ_ONLY_FNS.indexOf(fn) === -1) {
-    res = { ok: false, error: 'GET で実行できるのは読み取り関数のみです: ' + fn };
   } else {
-    var arg;
-    if (p.arg) {
-      try { arg = JSON.parse(p.arg); } catch (err) { arg = p.arg; }
-    }
-    res = dispatch_(fn, arg, p.token);
-  }
-
-  if (p.callback && /^[\w.$]+$/.test(p.callback)) {
-    return ContentService
-      .createTextOutput(p.callback + '(' + JSON.stringify(res) + ');')
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    res = { ok: false, error: 'GET では実行できません: ' + fn };
   }
   return jsonOut_(res);
 }
@@ -765,8 +756,15 @@ function dispatch_(fn, arg, token) {
   if (!fn || !handlers.hasOwnProperty(fn)) {
     return { ok: false, error: '未知の関数です: ' + fn };
   }
-  /* 読み取りは素通し。書き込み系だけ合言葉を要求する */
-  if (API_TOKEN && READ_ONLY_FNS.indexOf(fn) === -1 && token !== API_TOKEN) {
+  /* すべての呼び出しでパスワードを確かめる。
+     4桁なので総当たりされないよう、間違いが続いたら10分止める（全員共通） */
+  var pass = appPassword_();
+  if (!pass) return { ok: false, error: 'パスワードが設定されていません' };
+  var cache = CacheService.getScriptCache();
+  var fails = parseInt(cache.get('authFail') || '0', 10);
+  if (fails >= 30) return { ok: false, error: 'パスワードの間違いが続いたため、10分ほど使えません' };
+  if (String(token || '') !== pass) {
+    cache.put('authFail', String(fails + 1), 600);
     return { ok: false, error: '認証に失敗しました' };
   }
   /* 書き込みは同時に走らせない。2台から同時に「飲んだ」を押すと、

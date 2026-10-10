@@ -445,6 +445,16 @@ body{overflow-x:clip;min-height:100dvh}
 </style>
 </head>
 <body>
+<!-- パスワード入力（端末ごとに一度だけ） -->
+<div id="passScreen" style="display:none;position:fixed;inset:0;z-index:300;background:var(--bg);align-items:center;justify-content:center;padding:24px;">
+  <div style="width:100%;max-width:320px;text-align:center;">
+    <div style="font-family:var(--fd);font-size:34px;font-style:italic;margin-bottom:18px;">Blanc</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">パスワードを入力してください</div>
+    <input type="password" id="passInput" inputmode="numeric" autocomplete="current-password" style="width:100%;text-align:center;font-size:20px;letter-spacing:0.3em;margin-bottom:12px;" onkeydown="if(event.key==='Enter')submitPass()">
+    <button class="btn btn-primary" style="width:100%;" onclick="submitPass()">開く</button>
+    <div id="passMsg" style="font-size:12px;color:#8C3020;margin-top:10px;min-height:1em;"></div>
+  </div>
+</div>
 <div class="loader" id="globalLoader">
   <div class="loader-box"><div class="spinner"></div><div class="loader-text">Chargement...</div></div>
 </div>
@@ -582,7 +592,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v14 · 2026-10-08</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v15 · 2026-10-10</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -672,8 +682,29 @@ var nameMaster = { domaine:[], wine:[] };
 // 「新しいデプロイ」を作るとURLが変わるので、その場合はここも書き換える。
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbw3Ay_CQ524GsfQ4NZWp5t5A0vYKvMLjI3io4y69ZQNpLc4Ow3njycvVymDZxSfESBj/exec';
 
-// Code.gs 側の API_TOKEN と同じ文字列にすること。書き込み系で必要。
-var API_TOKEN = 'blanc-GSAIae2Dt40P';
+// パスワード。端末ごとに一度入力して保存する（コードには書かない。GitHub で公開されているため）
+function getPass() { try { return localStorage.getItem('blancPass') || ''; } catch(e) { return ''; } }
+function showPassScreen(msg) {
+  showLoader(false);
+  var el = document.getElementById('passScreen');
+  document.getElementById('passMsg').textContent = msg || '';
+  if (el.style.display === 'flex') return;   // 裏の読み込みが続けて失敗しても、入力中の文字を消さない
+  el.style.display = 'flex';
+  var inp = document.getElementById('passInput'); inp.value = ''; setTimeout(function() { inp.focus(); }, 50);
+}
+function submitPass() {
+  var v = document.getElementById('passInput').value.trim();
+  if (!v) return;
+  try { localStorage.setItem('blancPass', v); } catch(e) {}
+  document.getElementById('passMsg').textContent = '確認中…';
+  gasCall('checkPass').then(function() {
+    document.getElementById('passScreen').style.display = 'none';
+    loadData();
+  }).catch(function(e) {
+    var m = (e && e.message) || String(e);
+    if (m.indexOf('認証') < 0 && m.indexOf('パスワード') < 0) document.getElementById('passMsg').textContent = m;
+  });
+}
 
 // 旧 GASウェブアプリ版の直接呼び出しの置き換え。呼び出し側の書き方と戻り値は従来どおり。
 //   - 関数が正常に返した値（{error:'...'} を含む）で resolve
@@ -701,7 +732,7 @@ function gasCall(fn, arg, timeoutMs) {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     redirect: 'follow',
-    body: JSON.stringify({ fn: fn, arg: arg, token: API_TOKEN })
+    body: JSON.stringify({ fn: fn, arg: arg, token: getPass() })
   };
   if (ctl) opts.signal = ctl.signal;
   var isWineWrite = WINE_MUTATORS.indexOf(fn) >= 0;
@@ -735,6 +766,13 @@ function gasCall(fn, arg, timeoutMs) {
         var msg = (res && res.error) || 'サーバーエラー';
         // index.html だけ新しく、GAS 側の貼り替え・再デプロイがまだの状態
         if (msg.indexOf('未知の関数') >= 0) msg = 'GAS側の更新が必要です（Code.gs を貼り替えて新バージョンでデプロイ） / ' + fn;
+        // パスワードが違う・変わった → 入力画面に戻す
+        if (msg === '認証に失敗しました') {
+          try { localStorage.removeItem('blancPass'); } catch(e) {}
+          showPassScreen('パスワードが違います');
+        } else if (msg.indexOf('パスワードの間違いが続いた') >= 0) {
+          showPassScreen(msg);
+        }
         throw new Error(msg);
       }
       if (res.data === 'pong' && fn !== 'ping') {
@@ -934,6 +972,8 @@ function loadData(retryCount) {
     // 描画を終えてから、裏で履歴の最新を取りに行く
     if (!subFresh) setTimeout(ensureSubData, 1200);
   }, function(e) {
+    var em = (e && e.message) || '';
+    if (em.indexOf('認証に失敗') >= 0 || em.indexOf('パスワード') >= 0) return;   // 入力画面を出している
     if (retryCount < 3) { setTimeout(function() { loadData(retryCount + 1); }, 1500); }
     else if (!painted) { showFatal('データを取得できませんでした', (e && e.message) || String(e)); }
     else { showLoader(false); }   // キャッシュが出ているなら黙って諦める
@@ -2057,7 +2097,8 @@ document.addEventListener('DOMContentLoaded', function() {
     m.addEventListener('click', function(e) { if (e.target === m) m.classList.remove('open'); });
   });
 });
-setTimeout(function() { loadData(); }, 0);
+// パスワードが保存されていなければ、先に入力してもらう
+setTimeout(function() { if (getPass()) loadData(); else showPassScreen(); }, 0);
 
 // ══ Historique：「飲んだ」と「買った」の2ビュー ══
 // 購入履歴(db.purchases)は今まで書き込むだけで、見る画面が無かった。
