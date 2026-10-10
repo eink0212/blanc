@@ -606,6 +606,141 @@ function getPurchaseSummary() {
   return { years: years };
 }
 
+/* ===== ワイン会（別ファイル「Ein's Wine ワイン会収支」。ファイルIDはスクリプトプロパティ EVENTS_SS_ID） =====
+ * 開催 … 1回1行。収入・費用・利益は保存のたびにここで計算して書く（シートで見ても分かるように）
+ * 参加者・費用 … 開催IDで紐づく行。保存のたびにその回の行を入れ替える
+ * 集計 … 月ごとの合計（数式）
+ */
+var EV_HEAD = ['ID', '日付', '会の名前', '状態', '人数', '収入', '費用', '利益', '利益率', 'メモ', '料理', '登録日時', '更新日時'];
+var EV_PEOPLE_HEAD = ['開催ID', '日付', '会の名前', '名前', '参加費'];
+var EV_COST_HEAD = ['開催ID', '日付', '会の名前', '区分', '内容', '金額', 'セラーID', '生産者', 'ワイン名', 'ヴィンテージ'];
+var EV_STATUS = ['実施', '予定', '中止'];
+var EV_CATS = ['ワイン', '食費', '会場', 'その他'];
+
+/** ワイン会のファイル。create が true なら無いとき作る（書き込みのときだけ） */
+function eventsBook_(create) {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('EVENTS_SS_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  if (!create) return null;
+  var ss = SpreadsheetApp.create("Ein's Wine ワイン会収支");
+  var DARK = '#1A1916', GOLD = '#C8A84B';
+  var mk = function (sh, name, head, widths) {
+    sh.setName(name);
+    sh.getRange(1, 1, 1, head.length).setValues([head]).setBackground(DARK).setFontColor(GOLD).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    widths.forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  };
+  mk(ss.getSheets()[0], '開催', EV_HEAD, [130, 90, 160, 60, 50, 90, 90, 90, 70, 260, 260, 140, 140]);
+  mk(ss.insertSheet(), '参加者', EV_PEOPLE_HEAD, [130, 90, 160, 140, 90]);
+  mk(ss.insertSheet(), '費用', EV_COST_HEAD, [130, 90, 160, 70, 320, 90, 130, 180, 260, 70]);
+  ss.getSheetByName('開催').getRange('B:B').setNumberFormat('yyyy/mm/dd');
+  ss.getSheetByName('開催').getRange('F:H').setNumberFormat('¥#,##0');
+  ss.getSheetByName('開催').getRange('I:I').setNumberFormat('0%');
+  ss.getSheetByName('参加者').getRange('E:E').setNumberFormat('¥#,##0');
+  ss.getSheetByName('費用').getRange('F:F').setNumberFormat('¥#,##0');
+  var sum = ss.insertSheet('集計');
+  sum.getRange(1, 1, 1, 6).setValues([['月', '回数', '収入', '費用', '利益', '利益率']]).setBackground(DARK).setFontColor(GOLD).setFontWeight('bold');
+  sum.getRange('A2').setFormula('=SORT(UNIQUE(FILTER(TEXT(\'開催\'!B2:B,"yyyy-mm"),\'開催\'!B2:B<>"",\'開催\'!D2:D="実施")),1,FALSE)');
+  for (var r = 2; r <= 60; r++) {
+    sum.getRange(r, 2, 1, 5).setFormulas([[
+      '=IF(A' + r + '="","",SUMPRODUCT((TEXT(\'開催\'!B$2:B,"yyyy-mm")=A' + r + ')*(\'開催\'!D$2:D="実施")))',
+      '=IF(A' + r + '="","",SUMPRODUCT((TEXT(\'開催\'!B$2:B,"yyyy-mm")=A' + r + ')*(\'開催\'!D$2:D="実施"),\'開催\'!F$2:F))',
+      '=IF(A' + r + '="","",SUMPRODUCT((TEXT(\'開催\'!B$2:B,"yyyy-mm")=A' + r + ')*(\'開催\'!D$2:D="実施"),\'開催\'!G$2:G))',
+      '=IF(A' + r + '="","",C' + r + '-D' + r + ')',
+      '=IF(OR(A' + r + '="",C' + r + '=0),"",E' + r + '/C' + r + ')'
+    ]]);
+  }
+  sum.getRange('C:E').setNumberFormat('¥#,##0');
+  sum.getRange('F:F').setNumberFormat('0%');
+  sum.setFrozenRows(1);
+  props.setProperty('EVENTS_SS_ID', ss.getId());
+  return ss;
+}
+
+function evRows_(sh) {
+  var n = sh.getLastRow() - 1;
+  return n > 0 ? sh.getRange(2, 1, n, sh.getLastColumn()).getValues() : [];
+}
+
+/** ワイン会の一覧（参加者・費用つき）。件数は多くないので全部返す */
+function getEvents() {
+  var ss = eventsBook_(false);
+  if (!ss) return { events: [] };
+  var people = {}, costs = {};
+  evRows_(ss.getSheetByName('参加者')).forEach(function (r) {
+    if (!r[0]) return;
+    (people[r[0]] = people[r[0]] || []).push({ name: String(r[3]), fee: Number(r[4]) || 0 });
+  });
+  evRows_(ss.getSheetByName('費用')).forEach(function (r) {
+    if (!r[0]) return;
+    (costs[r[0]] = costs[r[0]] || []).push({ cat: String(r[3]), desc: String(r[4]), amount: Number(r[5]) || 0,
+      wineId: String(r[6] || ''), producer: String(r[7] || ''), name: String(r[8] || ''), vintage: String(r[9] || '') });
+  });
+  var events = evRows_(ss.getSheetByName('開催')).filter(function (r) { return r[0]; }).map(function (r) {
+    return { id: String(r[0]), date: dateStr_(r[1]), name: String(r[2]), status: String(r[3] || '実施'),
+      income: Number(r[5]) || 0, cost: Number(r[6]) || 0, profit: Number(r[7]) || 0,
+      memo: String(r[9] || ''), dishes: String(r[10] || ''),
+      people: people[r[0]] || [], costs: costs[r[0]] || [] };
+  });
+  events.sort(function (a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+  return { events: events };
+}
+
+/** シートから、その開催IDの行を消す（下から） */
+function evDeleteRows_(sh, id) {
+  var n = sh.getLastRow() - 1;
+  if (n < 1) return;
+  var ids = sh.getRange(2, 1, n, 1).getValues();
+  for (var i = ids.length - 1; i >= 0; i--) if (String(ids[i][0]) === id) sh.deleteRow(i + 2);
+}
+
+/**
+ * 1回分を保存する。ev: { id?, date, name, status, memo, dishes, people:[{name,fee}], costs:[{cat,desc,amount,wineId,producer,name,vintage}] }
+ * id が無ければ新規。参加者・費用はその回の行を丸ごと入れ替える。
+ */
+function saveEvent(ev) {
+  if (!ev || !/^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || ''))) return { error: '日付がありません' };
+  if (!String(ev.name || '').trim()) return { error: '会の名前がありません' };
+  var status = EV_STATUS.indexOf(ev.status) >= 0 ? ev.status : '実施';
+  var people = (ev.people || []).filter(function (p) { return String(p.name || '').trim() || Number(p.fee); });
+  var costs = (ev.costs || []).filter(function (c) { return String(c.desc || '').trim() || Number(c.amount); });
+  var income = people.reduce(function (s, p) { return s + (Number(p.fee) || 0); }, 0);
+  var cost = costs.reduce(function (s, c) { return s + (Number(c.amount) || 0); }, 0);
+  var ss = eventsBook_(true), sh = ss.getSheetByName('開催');
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  var m = ev.date.match(/^(\d{4})-(\d{2})-(\d{2})$/), d = new Date(+m[1], +m[2] - 1, +m[3]);
+  var id = String(ev.id || ''), row = -1;
+  if (id) {
+    var v = evRows_(sh);
+    for (var i = 0; i < v.length; i++) if (String(v[i][0]) === id) { row = i + 2; break; }
+    if (row < 0) return { error: 'この回が見つかりません（削除された可能性があります）' };
+  } else id = uid();
+  var name = String(ev.name).trim();
+  var rec = [id, d, name, status, people.length, income, cost, income - cost, income ? (income - cost) / income : '',
+             String(ev.memo || ''), String(ev.dishes || ''), row > 0 ? sh.getRange(row, 12).getValue() : now, now];
+  if (row > 0) sh.getRange(row, 1, 1, EV_HEAD.length).setValues([rec]);
+  else sh.getRange(sh.getLastRow() + 1, 1, 1, EV_HEAD.length).setValues([rec]);
+  var ps = ss.getSheetByName('参加者'), cs = ss.getSheetByName('費用');
+  evDeleteRows_(ps, id); evDeleteRows_(cs, id);
+  if (people.length) ps.getRange(ps.getLastRow() + 1, 1, people.length, EV_PEOPLE_HEAD.length).setValues(people.map(function (p) {
+    return [id, d, name, String(p.name || '').trim(), Number(p.fee) || 0];
+  }));
+  if (costs.length) cs.getRange(cs.getLastRow() + 1, 1, costs.length, EV_COST_HEAD.length).setValues(costs.map(function (c) {
+    return [id, d, name, EV_CATS.indexOf(c.cat) >= 0 ? c.cat : 'その他', String(c.desc || '').trim(), Number(c.amount) || 0,
+            String(c.wineId || ''), String(c.producer || ''), String(c.name || ''), String(c.vintage || '')];
+  }));
+  return { ok: true, id: id, income: income, cost: cost, profit: income - cost };
+}
+
+function deleteEvent(id) {
+  var ss = eventsBook_(false);
+  if (!ss || !id) return { error: '対象が見つかりません' };
+  var before = ss.getSheetByName('開催').getLastRow();
+  ['開催', '参加者', '費用'].forEach(function (n) { evDeleteRows_(ss.getSheetByName(n), String(id)); });
+  return before === ss.getSheetByName('開催').getLastRow() ? { error: '対象が見つかりません' } : { ok: true };
+}
+
 /* ===== 寺田倉庫（「寺田倉庫」シート。保管タブがどの端末でも同じ一覧を出すため） ===== */
 var STORAGE_SHEET = '寺田倉庫';
 var STORAGE_HEAD = ['寺田ID', '生産者', 'ワイン名', 'ヴィンテージ', '色', '産地', '容量', '入庫日', 'セラー在庫', 'セラーID', 'メモ'];
@@ -682,7 +817,7 @@ function appPassword_() {
 }
 
 /** 読み取りだけの関数（書き込みのロックを取らない） */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass'];
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
@@ -702,6 +837,9 @@ function apiHandlers_() {
     saveDrinking:  function (arg) { return saveDrinking(arg); },
     getStorage:    function (arg) { return getStorage(); },
     getPurchaseSummary: function (arg) { return getPurchaseSummary(); },
+    getEvents:     function (arg) { return getEvents(); },
+    saveEvent:     function (arg) { return saveEvent(arg); },
+    deleteEvent:   function (arg) { return deleteEvent(arg); },
     saveStorage:   function (arg) { return saveStorage(arg); },
     setPurchaseDoc: function (arg) { return setPurchaseDoc(arg); }
   };

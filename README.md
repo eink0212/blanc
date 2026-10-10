@@ -164,6 +164,7 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
 | `saveDrinking` | drinking オブジェクト | 飲酒履歴保存 | ○ |
 | `getStorage` / `saveStorage` | なし / `{rows}` | 寺田倉庫シートの読み書き | ○ |
 | `getPurchaseSummary` | なし | 購入履歴の年ごとの本数・金額（トップ画面） | ○ |
+| `getEvents` / `saveEvent` / `deleteEvent` | なし / 1回分 / id | ワイン会（別ファイル。スクリプトプロパティ `EVENTS_SS_ID`。無ければ最初の保存で作る） | ○ |
 | `setPurchaseDoc` | `{batchId, year, doc}` | 取込IDの行の「書類」列を埋める | －（保守用） |
 
 書き込み系は `dispatch_` で `LockService` を取り、1つずつ実行する（importReception は自前でロック）。

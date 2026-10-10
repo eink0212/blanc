@@ -162,6 +162,23 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
 .btn-outline{background:transparent;border:0.5px solid var(--border2);color:var(--text2)}
 .btn-outline:hover{background:var(--bg2)}
 .btn-row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:18px}
+/* ── ワイン会 ── */
+.ev-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;background:var(--bg3);border:0.5px solid var(--border);margin-bottom:6px;cursor:pointer}
+.ev-row .ev-name{font-size:14px;color:var(--text)}
+.ev-row .ev-sub{font-size:11px;color:var(--text3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-row .ev-right{text-align:right;flex-shrink:0;font-size:12px;color:var(--text2)}
+.ev-row .ev-profit{font-family:var(--fd);font-size:16px;color:var(--text)}
+.ev-month{font-size:10px;letter-spacing:0.14em;color:var(--text3);margin:14px 2px 6px;text-transform:uppercase}
+.ev-sec{font-size:11px;letter-spacing:0.1em;color:var(--text3);margin:16px 0 6px;display:flex;justify-content:space-between;align-items:center}
+.ev-line{display:grid;grid-template-columns:1fr 96px 36px;gap:6px;margin-bottom:6px;align-items:center}
+.ev-line.cost{grid-template-columns:1fr 110px 36px;grid-template-areas:'d d d' 'c a x';padding-bottom:6px;border-bottom:0.5px solid var(--border)}
+.ev-line.cost .d{grid-area:d}.ev-line.cost .c{grid-area:c}.ev-line.cost .a{grid-area:a}.ev-line.cost .x{grid-area:x}
+.ev-line input,.ev-line select{width:100%;min-width:0;font-size:13px}
+.ev-line .x{border:none;background:none;color:var(--text3);font-size:16px;cursor:pointer}
+.ev-wine-tools{grid-column:1/-1;display:flex;gap:6px;margin:-2px 0 4px}
+.ev-total{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;font-size:11px;color:var(--text3);margin-top:12px}
+.ev-total b{display:block;font-family:var(--fd);font-size:15px;color:var(--text);font-weight:400}
+
 
 /* ── Forms ── */
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -470,6 +487,7 @@ body{overflow-x:clip;min-height:100dvh}
   <button class="nav-tab" onclick="showPage('scan')">Reception</button>
   <button class="nav-tab" onclick="showPage('tasting')">Tasting</button>
   <button class="nav-tab" onclick="showPage('historique')">Historique</button>
+  <button class="nav-tab" onclick="showPage('soiree')">Soirées</button>
 </nav>
 
 <!-- ── Cave ── -->
@@ -591,8 +609,18 @@ body{overflow-x:clip;min-height:100dvh}
   <div id="historique-list"></div>
 </div>
 
+<!-- ── ワイン会 ── -->
+<div class="page" id="page-soiree">
+  <div id="ev-stats" class="stat-grid"></div>
+  <div class="sec-header">
+    <div class="sec-title">Soirées</div>
+    <button class="btn btn-primary" style="font-size:10px;padding:6px 14px;" onclick="openEvent()">+ 新しい会</button>
+  </div>
+  <div id="ev-list"></div>
+</div>
+
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v15 · 2026-10-10</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v16 · 2026-10-10</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -615,6 +643,45 @@ body{overflow-x:clip;min-height:100dvh}
       <button class="btn btn-primary" onclick="saveWine()">Enregistrer</button>
     </div>
     <input type="hidden" id="w-edit-id">
+  </div>
+</div>
+
+<!-- ── ワイン会 1回分 ── -->
+<div class="modal-overlay" id="eventModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('eventModal')">&#10005;</button>
+    <div class="modal-title" id="ev-title">ワイン会</div>
+    <div class="form-grid">
+      <div class="form-group"><label>日付 *</label><input type="date" id="ev-date"></div>
+      <div class="form-group"><label>状態</label><select id="ev-status"><option>実施</option><option>予定</option><option>中止</option></select></div>
+      <div class="form-group full"><label>会の名前 *</label><input type="text" id="ev-name" placeholder="例：さわ会"></div>
+    </div>
+    <div class="ev-sec">参加者と参加費 <button class="btn-sm" onclick="evAddPerson()">＋ 参加者</button></div>
+    <div id="ev-people"></div>
+    <div class="ev-sec">費用 <span style="display:flex;gap:6px;"><button class="btn-sm gold" onclick="openWinePick()">＋ セラーのワイン</button><button class="btn-sm" onclick="evAddCost()">＋ 費用</button></span></div>
+    <div id="ev-costs"></div>
+    <div class="ev-total" id="ev-total"></div>
+    <div class="form-grid" style="margin-top:12px;">
+      <div class="form-group full"><label>料理</label><textarea id="ev-dishes" rows="3"></textarea></div>
+      <div class="form-group full"><label>メモ</label><textarea id="ev-memo" rows="2"></textarea></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-sm danger" id="ev-del" onclick="deleteEventUI()">削除</button>
+      <button class="btn btn-outline" onclick="closeModal('eventModal')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveEventUI()">Enregistrer</button>
+    </div>
+    <input type="hidden" id="ev-id">
+  </div>
+</div>
+
+<!-- ── セラーからワインを選ぶ ── -->
+<div class="modal-overlay" id="winePickModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('winePickModal')">&#10005;</button>
+    <div class="modal-title">セラーのワイン</div>
+    <input type="text" id="wp-q" placeholder="ワイン名・生産者（カタカナも可）" oninput="renderWinePick()" style="width:100%;margin-bottom:8px;">
+    <label style="font-size:12px;color:var(--text2);display:flex;gap:6px;align-items:center;margin-bottom:8px;"><input type="checkbox" id="wp-drink" checked style="width:auto;"> 「飲んだ」にする（在庫を1本減らし、飲酒履歴に記録）</label>
+    <div id="wp-list" style="max-height:55vh;overflow-y:auto;"></div>
   </div>
 </div>
 
@@ -987,7 +1054,7 @@ function showPage(id) {
   document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
   var pageId = (id === 'dash' || id === 'cellar') ? 'cellar' : id;
   document.getElementById('page-' + pageId).classList.add('active');
-  var map = {dash:0, cellar:0, storage:1, scan:2, tasting:3, historique:4};
+  var map = {dash:0, cellar:0, storage:1, scan:2, tasting:3, historique:4, soiree:5};
   if (map[id] !== undefined) document.querySelectorAll('.nav-tab')[map[id]].classList.add('active');
   if (id === 'dash' || id === 'cellar') {
     // Cave を押したら、今あるワインだけ（在庫あり）に戻す
@@ -998,6 +1065,7 @@ function showPage(id) {
   if (id === 'storage') renderStorage();
   if (id === 'tasting') { ensureSubData(); renderTasting(); }
   if (id === 'historique') { ensureSubData(); renderHistorique(); }
+  if (id === 'soiree') { renderEvents(); fetchEvents(); }
 }
 
 function renderDash() {
@@ -1379,6 +1447,7 @@ function drinkWine(id) {
   // 削除すると過去の記録から生産者・ヴィンテージが消える。
   drinkOne(w, todayStr()).then(function() {
     updateStockBadge(id, w.stock); renderDash(); showLoader(false);
+    if (confirm('テイスティングも書きますか？')) addTastingFor(id);
   }).catch(function(e) {
     updateStockBadge(id, w.stock); renderDash(); showLoader(false);
     offerDrinkRetry(e);
@@ -2099,6 +2168,205 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 // パスワードが保存されていなければ、先に入力してもらう
 setTimeout(function() { if (getPass()) loadData(); else showPassScreen(); }, 0);
+
+
+// ══ ワイン会（Soirées） ══
+// データは別ファイル「Ein's Wine ワイン会収支」。開いたときに取り、端末に控えを置く
+var evData = null, evFetching = false;
+try { evData = JSON.parse(localStorage.getItem('eventsCache') || 'null'); } catch(e) {}
+var EV_CATS = ['ワイン', '食費', '会場', 'その他'];
+var evDraft = null;   // 編集中の1回分
+
+function yen(v) { return '¥' + Math.round(Number(v) || 0).toLocaleString(); }
+
+function fetchEvents() {
+  if (evFetching) return;
+  evFetching = true;
+  gasCall('getEvents').then(function(r) {
+    evFetching = false;
+    if (!r || r.error || !r.events) return;
+    evData = r.events;
+    try { localStorage.setItem('eventsCache', JSON.stringify(evData)); } catch(e) {}
+    renderEvents();
+  }).catch(function() { evFetching = false; });
+}
+
+function renderEvents() {
+  var list = document.getElementById('ev-list'), st = document.getElementById('ev-stats');
+  if (!list) return;
+  if (!evData) { list.innerHTML = '<div class="empty-state"><div class="empty-title">読み込み中…</div></div>'; return; }
+  var y = String(new Date().getFullYear()), n = 0, inc = 0, cost = 0;
+  evData.forEach(function(e) { if (e.status === '実施' && e.date.slice(0, 4) === y) { n++; inc += e.income; cost += e.cost; } });
+  var card = function(label, value, sub) {
+    return '<div class="stat-card" style="cursor:default;"><div class="stat-label">' + label + '</div><div class="stat-value" style="font-size:20px;">' + value + '</div>' +
+      (sub ? '<div style="font-size:10px;color:var(--text3);margin-top:4px;">' + sub + '</div>' : '') + '</div>';
+  };
+  if (st) st.innerHTML = card(y + ' 回数', n + '回') + card('収入', yen(inc)) + card('費用', yen(cost)) +
+    card('利益', yen(inc - cost), inc ? Math.round((inc - cost) / inc * 100) + '%' : '');
+  if (!evData.length) { list.innerHTML = '<div class="empty-state"><span class="empty-icon">🍷</span><div class="empty-title">まだ記録がありません</div><div class="empty-sub">「＋ 新しい会」から追加できます</div></div>'; return; }
+  var h = '', month = '';
+  evData.forEach(function(e) {
+    var m = e.date.slice(0, 7);
+    if (m !== month) {
+      month = m;
+      var mi = 0, mc = 0;
+      evData.forEach(function(x) { if (x.date.slice(0, 7) === m && x.status === '実施') { mi += x.income; mc += x.cost; } });
+      h += '<div class="ev-month">' + m.replace('-', '.') + '　利益 ' + yen(mi - mc) + '</div>';
+    }
+    var wines = e.costs.filter(function(c) { return c.cat === 'ワイン'; }).length;
+    h += '<div class="ev-row" data-id="' + esc(e.id) + '" onclick="openEvent(this.dataset.id)">' +
+      '<div style="min-width:0;"><div class="ev-name">' + esc(e.name) + (e.status !== '実施' ? '　<span style="font-size:10px;color:var(--text3);">' + esc(e.status) + '</span>' : '') + '</div>' +
+      '<div class="ev-sub">' + esc(e.date.slice(5).replace('-', '/')) + ' · ' + e.people.length + '人' + (wines ? ' · ワイン' + wines + '本' : '') + ' · 収入 ' + yen(e.income) + '</div></div>' +
+      '<div class="ev-right"><div class="ev-profit">' + yen(e.profit) + '</div><div>' + (e.income ? Math.round(e.profit / e.income * 100) + '%' : '') + '</div></div></div>';
+  });
+  list.innerHTML = h;
+}
+
+function openEvent(id) {
+  var e = null;
+  (evData || []).forEach(function(x) { if (x.id === id) e = x; });
+  evDraft = e ? JSON.parse(JSON.stringify(e)) : { id: '', date: todayStr(), name: '', status: '実施', memo: '', dishes: '',
+    people: [{ name: '桐生', fee: 22000 }], costs: [] };
+  document.getElementById('ev-title').textContent = e ? 'ワイン会' : '新しいワイン会';
+  document.getElementById('ev-id').value = evDraft.id;
+  document.getElementById('ev-date').value = evDraft.date;
+  document.getElementById('ev-name').value = evDraft.name;
+  document.getElementById('ev-status').value = evDraft.status;
+  document.getElementById('ev-dishes').value = evDraft.dishes;
+  document.getElementById('ev-memo').value = evDraft.memo;
+  document.getElementById('ev-del').style.display = e ? '' : 'none';
+  renderEventLines();
+  document.getElementById('eventModal').classList.add('open');
+}
+
+// 入力欄の値を evDraft に戻す（行を足す・消す前に呼ぶ）
+function readEventLines() {
+  evDraft.people.forEach(function(p, i) {
+    p.name = document.getElementById('evp-n-' + i).value;
+    p.fee = parseInt(document.getElementById('evp-f-' + i).value, 10) || 0;
+  });
+  evDraft.costs.forEach(function(c, i) {
+    c.cat = document.getElementById('evc-c-' + i).value;
+    c.desc = document.getElementById('evc-d-' + i).value;
+    c.amount = parseInt(document.getElementById('evc-a-' + i).value, 10) || 0;
+  });
+}
+
+function renderEventLines() {
+  var ph = '';
+  evDraft.people.forEach(function(p, i) {
+    ph += '<div class="ev-line"><input id="evp-n-' + i + '" value="' + esc(p.name) + '" placeholder="名前" oninput="evTotals()">' +
+      '<input id="evp-f-' + i + '" type="number" value="' + (p.fee || '') + '" placeholder="参加費" oninput="evTotals()">' +
+      '<button class="x" onclick="evRemove(\'people\',' + i + ')">✕</button></div>';
+  });
+  document.getElementById('ev-people').innerHTML = ph || '<div style="font-size:12px;color:var(--text3);">参加者なし</div>';
+  var ch = '';
+  evDraft.costs.forEach(function(c, i) {
+    ch += '<div class="ev-line cost"><select class="c" id="evc-c-' + i + '" oninput="evTotals()">' +
+      EV_CATS.map(function(k) { return '<option' + (k === c.cat ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select>' +
+      '<input class="d" id="evc-d-' + i + '" value="' + esc(c.desc) + '" placeholder="内容">' +
+      '<input class="a" id="evc-a-' + i + '" type="number" value="' + (c.amount || '') + '" placeholder="金額" oninput="evTotals()">' +
+      '<button class="x" onclick="evRemove(\'costs\',' + i + ')">✕</button>' +
+      (c.wineId ? '<div class="ev-wine-tools"><button class="btn-sm gold" onclick="evTasting(' + i + ')">テイスティング</button></div>' : '') + '</div>';
+  });
+  document.getElementById('ev-costs').innerHTML = ch || '<div style="font-size:12px;color:var(--text3);">費用なし</div>';
+  evTotals();
+}
+
+function evTotals() {
+  var inc = 0, cost = 0;
+  evDraft.people.forEach(function(p, i) { var el = document.getElementById('evp-f-' + i); inc += parseInt(el && el.value, 10) || 0; });
+  evDraft.costs.forEach(function(c, i) { var el = document.getElementById('evc-a-' + i); cost += parseInt(el && el.value, 10) || 0; });
+  document.getElementById('ev-total').innerHTML = '<div>収入<b>' + yen(inc) + '</b></div><div>費用<b>' + yen(cost) + '</b></div>' +
+    '<div>利益<b>' + yen(inc - cost) + '</b></div><div>利益率<b>' + (inc ? Math.round((inc - cost) / inc * 100) + '%' : '–') + '</b></div>';
+}
+
+function evAddPerson() { readEventLines(); evDraft.people.push({ name: '', fee: 22000 }); renderEventLines(); }
+function evAddCost() { readEventLines(); evDraft.costs.push({ cat: '食費', desc: '', amount: 0 }); renderEventLines(); }
+function evRemove(kind, i) { readEventLines(); evDraft[kind].splice(i, 1); renderEventLines(); }
+
+function saveEventUI() {
+  readEventLines();
+  evDraft.date = document.getElementById('ev-date').value;
+  evDraft.name = document.getElementById('ev-name').value.trim();
+  evDraft.status = document.getElementById('ev-status').value;
+  evDraft.dishes = document.getElementById('ev-dishes').value;
+  evDraft.memo = document.getElementById('ev-memo').value;
+  if (!evDraft.date || !evDraft.name) { alert('日付と会の名前を入れてください'); return; }
+  showLoader(true);
+  gasCall('saveEvent', evDraft).then(function(r) {
+    if (r.error) { alert(r.error); showLoader(false); return; }
+    evDraft.id = r.id; evDraft.income = r.income; evDraft.cost = r.cost; evDraft.profit = r.profit;
+    evDraft.people = evDraft.people.filter(function(p) { return String(p.name).trim() || p.fee; });
+    evDraft.costs = evDraft.costs.filter(function(c) { return String(c.desc).trim() || c.amount; });
+    evData = (evData || []).filter(function(x) { return x.id !== r.id; }).concat([evDraft]);
+    evData.sort(function(a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+    try { localStorage.setItem('eventsCache', JSON.stringify(evData)); } catch(e) {}
+    closeModal('eventModal'); renderEvents(); showLoader(false);
+  }).catch(function(e) { alert(e.message); showLoader(false); });
+}
+
+function deleteEventUI() {
+  var id = document.getElementById('ev-id').value;
+  if (!id || !confirm('この会の記録を削除しますか？（セラーや飲酒履歴は変わりません）')) return;
+  showLoader(true);
+  gasCall('deleteEvent', id).then(function(r) {
+    if (r.error) { alert(r.error); showLoader(false); return; }
+    evData = (evData || []).filter(function(x) { return x.id !== id; });
+    try { localStorage.setItem('eventsCache', JSON.stringify(evData)); } catch(e) {}
+    closeModal('eventModal'); renderEvents(); showLoader(false);
+  }).catch(function(e) { alert(e.message); showLoader(false); });
+}
+
+// セラーのワインを費用に足す（原価＝セラーの単価）。「飲んだ」にもできる
+function openWinePick() {
+  readEventLines();
+  document.getElementById('wp-q').value = '';
+  renderWinePick();
+  document.getElementById('winePickModal').classList.add('open');
+}
+function renderWinePick() {
+  var q = document.getElementById('wp-q').value.trim().toLowerCase();
+  var ws = db.wines.filter(function(w) { return (w.stock || 0) > 0 && matchQ(q, [w.name, w.producer]); });
+  ws.sort(function(a, b) { return String(a.producer).localeCompare(String(b.producer)) || String(a.name).localeCompare(String(b.name)); });
+  document.getElementById('wp-list').innerHTML = ws.length ? ws.map(function(w) {
+    return '<div class="ev-row" data-id="' + esc(w.id) + '" onclick="pickWine(this.dataset.id)"><div style="min-width:0;">' +
+      '<div class="ev-name">' + esc(w.name) + (w.vintage ? ' ' + esc(w.vintage) : '') + '</div><div class="ev-sub">' + esc(w.producer) + ' · 在庫' + w.stock + '</div></div>' +
+      '<div class="ev-right">' + (w.price ? yen(w.price) : '単価なし') + '</div></div>';
+  }).join('') : '<div style="font-size:12px;color:var(--text3);padding:8px;">在庫のあるワインが見つかりません</div>';
+}
+function pickWine(id) {
+  var w = null; db.wines.forEach(function(x) { if (x.id === id) w = x; });
+  if (!w) return;
+  var drink = document.getElementById('wp-drink').checked;
+  var evName = document.getElementById('ev-name').value.trim(), evDate = document.getElementById('ev-date').value || todayStr();
+  evDraft.costs.push({ cat: 'ワイン', desc: w.name + (w.vintage ? ' ' + w.vintage : '') + ' / ' + (w.producer || ''), amount: w.price || 0,
+    wineId: w.id, producer: w.producer || '', name: w.name, vintage: String(w.vintage || '') });
+  closeModal('winePickModal');
+  renderEventLines();
+  if (!drink) return;
+  showLoader(true);
+  var rec = { wineId: w.id, wineName: w.name, producer: w.producer || '', vintage: w.vintage || '', date: evDate, qty: 1,
+    price: w.price || 0, memo: 'ワイン会: ' + (evName || '') };
+  gasCall('adjustStock', { id: w.id, delta: -1 }).then(function(r) {
+    if (r.error) throw new Error(w.name + ': ' + r.error);
+    w.stock = r.stock;
+    return saveDrinkRecord(rec);
+  }).then(function() { renderDash(); showLoader(false); })
+    .catch(function(e) { renderDash(); showLoader(false); offerDrinkRetry(e); });
+}
+
+// 費用のワインからテイスティングを書く（日付＝会の日、シーン＝会の名前）
+function evTasting(i) {
+  readEventLines();
+  var c = evDraft.costs[i];
+  var date = document.getElementById('ev-date').value, scene = document.getElementById('ev-name').value.trim();
+  showAddTasting();
+  ensureWineOption(c.wineId, c.name + (c.vintage ? ' ' + c.vintage : ''));
+  document.getElementById('t-wine-id').value = c.wineId;
+  if (date) document.getElementById('t-date').value = date;
+  document.getElementById('t-scene').value = scene;
+}
 
 // ══ Historique：「飲んだ」と「買った」の2ビュー ══
 // 購入履歴(db.purchases)は今まで書き込むだけで、見る画面が無かった。
