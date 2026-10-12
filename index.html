@@ -162,6 +162,22 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
 .btn-outline{background:transparent;border:0.5px solid var(--border2);color:var(--text2)}
 .btn-outline:hover{background:var(--bg2)}
 .btn-row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:18px}
+
+/* 会の「見る」画面。1件1行で全体を見渡せるように */
+.evv-head{font-size:12px;color:var(--text3);margin:-6px 0 10px}
+.evv-sec{font-size:10px;letter-spacing:0.12em;color:var(--text3);margin:14px 0 4px;text-transform:uppercase}
+.evv-row{display:flex;align-items:baseline;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);font-size:13px}
+.evv-row .k{flex-shrink:0;font-size:10px;color:var(--text3);width:34px}
+.evv-row .n{flex:1;min-width:0;color:var(--text);line-height:1.35}
+.evv-row .n small{display:block;font-size:11px;color:var(--text3)}
+.evv-row .a{flex-shrink:0;font-family:var(--fd);font-size:14px;color:var(--text)}
+.evv-row .t{flex-shrink:0;border:0.5px solid var(--border2);background:var(--gold-light);font-size:13px;line-height:1;padding:5px 6px;cursor:pointer;align-self:center}
+.evv-people{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.evv-text{font-size:12px;color:var(--text2);white-space:pre-wrap;line-height:1.6}
+/* 編集画面は欄を詰める（文字は iOS の拡大を避けるため 16px のまま） */
+.ev-line input,.ev-line select{min-height:36px !important;padding:6px 8px !important}
+.ev-line.cost{grid-template-columns:96px 1fr 34px 30px;grid-template-areas:'d d d d' 'c a t x'}
+.ev-line.cost .t{grid-area:t;border:0.5px solid var(--border2);background:var(--gold-light);color:var(--gold-dark);font-size:14px;height:36px;cursor:pointer}
 /* ── ワイン会 ── */
 .ev-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;background:var(--bg3);border:0.5px solid var(--border);margin-bottom:6px;cursor:pointer}
 .ev-row .ev-name{font-size:14px;color:var(--text)}
@@ -171,7 +187,7 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
 .ev-month{font-size:10px;letter-spacing:0.14em;color:var(--text3);margin:14px 2px 6px;text-transform:uppercase}
 .ev-sec{font-size:11px;letter-spacing:0.1em;color:var(--text3);margin:16px 0 6px;display:flex;justify-content:space-between;align-items:center}
 .ev-line{display:grid;grid-template-columns:1fr 96px 36px;gap:6px;margin-bottom:6px;align-items:center}
-.ev-line.cost{grid-template-columns:1fr 110px 36px;grid-template-areas:'d d d' 'c a x';padding-bottom:6px;border-bottom:0.5px solid var(--border)}
+.ev-line.cost{padding-bottom:6px;border-bottom:0.5px solid var(--border)}
 .ev-line.cost .d{grid-area:d}.ev-line.cost .c{grid-area:c}.ev-line.cost .a{grid-area:a}.ev-line.cost .x{grid-area:x}
 .ev-line input,.ev-line select{width:100%;min-width:0;font-size:13px}
 .ev-line .x{border:none;background:none;color:var(--text3);font-size:16px;cursor:pointer}
@@ -624,7 +640,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v18 · 2026-10-10</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v19 · 2026-10-12</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -655,6 +671,8 @@ body{overflow-x:clip;min-height:100dvh}
   <div class="modal">
     <button class="modal-close" onclick="closeModal('eventModal')">&#10005;</button>
     <div class="modal-title" id="ev-title">ワイン会</div>
+    <div id="ev-view"></div>
+    <div id="ev-edit">
     <div class="form-grid">
       <div class="form-group"><label>日付 *</label><input type="date" id="ev-date"></div>
       <div class="form-group"><label>状態</label><select id="ev-status"><option>実施</option><option>予定</option><option>中止</option></select></div>
@@ -674,6 +692,7 @@ body{overflow-x:clip;min-height:100dvh}
       <button class="btn-sm danger" id="ev-del" onclick="deleteEventUI()">削除</button>
       <button class="btn btn-outline" onclick="closeModal('eventModal')">Annuler</button>
       <button class="btn btn-primary" onclick="saveEventUI()">Enregistrer</button>
+    </div>
     </div>
     <input type="hidden" id="ev-id">
   </div>
@@ -2262,7 +2281,51 @@ function openEvent(id) {
   document.getElementById('ev-memo').value = evDraft.memo;
   document.getElementById('ev-del').style.display = e ? '' : 'none';
   renderEventLines();
+  setEventMode(e ? 'view' : 'edit');
   document.getElementById('eventModal').classList.add('open');
+}
+
+function setEventMode(mode) {
+  document.getElementById('ev-edit').style.display = mode === 'edit' ? '' : 'none';
+  document.getElementById('ev-view').style.display = mode === 'view' ? '' : 'none';
+  if (mode === 'view') renderEventView();
+  var m = document.querySelector('#eventModal .modal'); if (m) m.scrollTop = 0;
+}
+
+function renderEventView() {
+  var e = evDraft, inc = 0, cost = 0;
+  e.people.forEach(function(p) { inc += Number(p.fee) || 0; });
+  e.costs.forEach(function(c) { cost += Number(c.amount) || 0; });
+  document.getElementById('ev-title').textContent = e.name;
+  var h = '<div class="evv-head">' + esc(e.date.replace(/-/g, '/')) + (e.status !== '実施' ? '　' + esc(e.status) : '') + '　' + e.people.length + '人</div>';
+  h += '<div class="ev-total" style="margin-top:0;"><div>収入<b>' + yen(inc) + '</b></div><div>費用<b>' + yen(cost) + '</b></div>' +
+    '<div>利益<b>' + yen(inc - cost) + '</b></div><div>利益率<b>' + (inc ? Math.round((inc - cost) / inc * 100) + '%' : '–') + '</b></div></div>';
+  if (e.people.length) {
+    h += '<div class="evv-sec">参加者</div><div class="evv-people">' + e.people.map(function(p) {
+      return '<div class="evv-row"><span class="n">' + esc(p.name) + '</span><span class="a">' + yen(p.fee) + '</span></div>';
+    }).join('') + '</div>';
+  }
+  if (e.costs.length) {
+    h += '<div class="evv-sec">費用</div>' + e.costs.map(function(c, i) {
+      // ワインは「名前 ヴィンテージ」と生産者を2段に（説明文は「名前 / 生産者」の形で入っている）
+      var main = c.desc || '', sub = '';
+      if (c.wineId && c.name) { main = c.name + (c.vintage ? ' ' + c.vintage : ''); sub = c.producer || ''; }
+      return '<div class="evv-row"><span class="k">' + esc(c.cat) + '</span><span class="n">' + esc(main) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span>' +
+        (c.wineId ? '<button class="t" title="テイスティングを書く" onclick="evTasting(' + i + ')">🍷</button>' : '') +
+        '<span class="a">' + yen(c.amount) + '</span></div>';
+    }).join('');
+  }
+  var tj = (tjData && e.id) ? tjData.rows.filter(function(r) { return r.eventId === e.id; }) : [];
+  if (tj.length) {
+    var tt = tj.reduce(function(s, r) { return s + r.amount; }, 0);
+    h += '<div class="evv-sec">築地の仕入れ ' + yen(tt) + '</div><div class="evv-text">' +
+      tj.map(function(r) { return esc(r.shop) + ' ' + yen(r.amount); }).join('　') + '</div>';
+  }
+  if (e.dishes) h += '<div class="evv-sec">料理</div><div class="evv-text">' + esc(e.dishes) + '</div>';
+  if (e.memo) h += '<div class="evv-sec">メモ</div><div class="evv-text">' + esc(e.memo) + '</div>';
+  h += '<div class="btn-row"><button class="btn btn-outline" onclick="closeModal(\'eventModal\')">閉じる</button>' +
+    '<button class="btn btn-primary" onclick="setEventMode(\'edit\')">編集</button></div>';
+  document.getElementById('ev-view').innerHTML = h;
 }
 
 // 入力欄の値を evDraft に戻す（行を足す・消す前に呼ぶ）
@@ -2292,8 +2355,8 @@ function renderEventLines() {
       EV_CATS.map(function(k) { return '<option' + (k === c.cat ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select>' +
       '<input class="d" id="evc-d-' + i + '" value="' + esc(c.desc) + '" placeholder="内容">' +
       '<input class="a" id="evc-a-' + i + '" type="number" value="' + (c.amount || '') + '" placeholder="金額" oninput="evTotals()">' +
-      '<button class="x" onclick="evRemove(\'costs\',' + i + ')">✕</button>' +
-      (c.wineId ? '<div class="ev-wine-tools"><button class="btn-sm gold" onclick="evTasting(' + i + ')">テイスティング</button></div>' : '') + '</div>';
+      (c.wineId ? '<button class="t" title="テイスティング" onclick="evTasting(' + i + ')">🍷</button>' : '<span></span>') +
+      '<button class="x" onclick="evRemove(\'costs\',' + i + ')">✕</button></div>';
   });
   document.getElementById('ev-costs').innerHTML = ch || '<div style="font-size:12px;color:var(--text3);">費用なし</div>';
   evTotals();
@@ -2341,7 +2404,9 @@ function saveEventUI() {
     evData = (evData || []).filter(function(x) { return x.id !== r.id; }).concat([evDraft]);
     evData.sort(function(a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
     try { localStorage.setItem('eventsCache', JSON.stringify(evData)); } catch(e) {}
-    closeModal('eventModal'); renderEvents(); showLoader(false);
+    document.getElementById('ev-id').value = r.id;
+    document.getElementById('ev-del').style.display = '';
+    renderEvents(); setEventMode('view'); showLoader(false);
   }).catch(function(e) { alert(e.message); showLoader(false); });
 }
 
