@@ -838,7 +838,7 @@ function deleteTsukiji(id) {
 
 /**
  * 見る用のシートを作り直す。years: 作り直す年（空なら全部の年）
- * 年のシート: 縦に店（その年によく行った順）、横に日付（古い日が左）。上に日ごとの合計。
+ * 年のシート: 縦に店（その年によく行った順）、横に日付（新しい日が左・古い日が右）。上に日ごとの合計。
  */
 function renderTsukijiViews_(ss, years) {
   var rows = tjRows_(ss), names = tjEventNames_();
@@ -857,7 +857,7 @@ function renderTsukijiViews_(ss, years) {
     /* 列 = 日付×会（同じ日に別の会の分があれば列を分ける） */
     var colKey = function (r) { return r.date + '|' + (r.eventId || r.tag); };
     var cols = [], ci = {};
-    yr.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }).forEach(function (r) {
+    yr.slice().sort(function (a, b) { return a.date > b.date ? -1 : a.date < b.date ? 1 : 0; }).forEach(function (r) {
       var k = colKey(r);
       if (ci[k] === undefined) {
         ci[k] = cols.length;
