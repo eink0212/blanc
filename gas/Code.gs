@@ -798,14 +798,22 @@ function tjEventNames_() {
 }
 
 /**
- * 仕入れを保存する。arg: { rows:[{id?, date, shop, amount, tag, eventId, memo}] }
- * id があればその行を書き換え、無ければ足す。保存後、その年の表と店舗シートを作り直す。
+ * 仕入れを保存する。arg: { rows:[{id?, date, shop, amount, tag, eventId, memo}], newEvent?: {会} }
+ * id があればその行を書き換え、無ければ足す。newEvent があれば先にその会（試食会など）を作り、その会の分にする。
+ * 表の作り直しはここではしない（遅いので、アプリが続けて renderTsukiji を裏で呼ぶ）
  */
 function saveTsukiji(arg) {
   var list = (arg && arg.rows) || [];
   if (!list.length) return { error: '保存する行がありません' };
   var ss = tsukijiBook_();
   if (!ss) return { error: '築地のファイルが設定されていません' };
+  var newEventId = '';
+  if (arg.newEvent) {
+    var er = saveEvent(arg.newEvent);
+    if (er.error) return er;
+    newEventId = er.id;
+    list.forEach(function (x) { x.eventId = newEventId; });
+  }
   var sh = tsukijiData_(ss), names = tjEventNames_();
   var v = evRows_(sh), at = {};
   v.forEach(function (r, i) { at[String(r[0])] = i + 2; });
@@ -825,9 +833,15 @@ function saveTsukiji(arg) {
     ids.push(rec[0]); years[m[1]] = true;
   }
   if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, TJ_HEAD.length).setValues(add);
-  SpreadsheetApp.flush();
-  renderTsukijiViews_(ss, Object.keys(years));
-  return { ok: true, ids: ids, tsukiji: getTsukiji() };
+  return { ok: true, ids: ids, eventId: newEventId, years: Object.keys(years) };
+}
+
+/** 年の表と店舗シートを作り直す（保存のあとアプリが裏で呼ぶ）。arg: { years:['2026'] } */
+function renderTsukiji(arg) {
+  var ss = tsukijiBook_();
+  if (!ss) return { error: '築地のファイルが設定されていません' };
+  renderTsukijiViews_(ss, (arg && arg.years) || []);
+  return { ok: true };
 }
 
 function deleteTsukiji(id) {
@@ -850,11 +864,12 @@ function renderTsukijiViews_(ss, years) {
   var DARK = '#1A1916', GOLD = '#C8A84B', GRAY = '#8F8878', PALE = '#F4F3EE';
   var allYears = {};
   rows.forEach(function (r) { allYears[r.date.slice(0, 4)] = true; });
-  var todo = (years && years.length) ? years : Object.keys(allYears);
+  var todo = (years && years.length) ? years : Object.keys(allYears), created = !(years && years.length);
   todo.forEach(function (y) {
     var yr = rows.filter(function (r) { return r.date.slice(0, 4) === y; });
     var sh = ss.getSheetByName(y);
-    if (!sh) sh = ss.insertSheet(y);
+    if (!sh) { sh = ss.insertSheet(y); created = true; }
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
     sh.clear(); sh.clearConditionalFormatRules && sh.clearConditionalFormatRules();
     if (sh.getFrozenRows()) sh.setFrozenRows(0);
     if (sh.getFrozenColumns()) sh.setFrozenColumns(0);
@@ -881,26 +896,45 @@ function renderTsukijiViews_(ss, years) {
       var j = ci[colKey(r)], i = si[r.shop];
       grid[i][j] = (Number(grid[i][j]) || 0) + r.amount; tot[j] += r.amount;
     });
-    var W = 3 + cols.length;
+    var W = 3 + cols.length, N = shops.length, grand = tot.reduce(function (s, v) { return s + v; }, 0);
+    var days = {}; yr.forEach(function (r) { days[r.date] = true; });
+    /* 1行目: タイトルと年の合計 */
     sh.getRange('A1').setValue('築地の仕入れ ' + y).setFontSize(14).setFontWeight('bold');
+    sh.getRange('B1:C1').merge().setValue('合計 ¥' + grand.toLocaleString() + '（' + Object.keys(days).length + '回）')
+      .setFontWeight('bold').setFontSize(12).setBackground('#FDF3D7').setHorizontalAlignment('center');
     sh.getRange('D1').setValue('アプリの「＋ 築地の仕入れ」から入力すると、この表は自動で作り直されます（直接書き込まない）').setFontColor(GRAY).setFontSize(9);
+    /* 2行目: 月ごとの合計（その月の列をまとめた枠） 3行目: 日付 4行目: どの会の分 5行目: 日ごとの合計 */
+    var months = [];
+    cols.forEach(function (c, j) {
+      var mo = c.date.slice(5, 7), last = months[months.length - 1];
+      if (!last || last.mo !== mo) months.push(last = { mo: mo, from: j, n: 0, sum: 0 });
+      last.n++; last.sum += tot[j];
+    });
+    var mrow = ['月の合計', '', ''].concat(cols.map(function () { return ''; }));
+    months.forEach(function (m) { mrow[3 + m.from] = (+m.mo) + '月  ¥' + m.sum.toLocaleString(); });
     var dates = ['店', '回数', '合計'].concat(cols.map(function (c) { return +c.date.slice(5, 7) + '/' + +c.date.slice(8, 10); }));
     var labels = ['', '', ''].concat(cols.map(function (c) { return c.label; }));
-    var total = ['日ごとの合計', yr.length, tot.reduce(function (s, v) { return s + v; }, 0)].concat(tot);
-    sh.getRange(2, 1, 3, W).setValues([dates, labels, total]);
-    sh.getRange(5, 1, shops.length, W).setValues(shops.map(function (s, i) { return [s, cnt[s], sum[s]].concat(grid[i]); }));
+    var total = ['日ごとの合計', yr.length, grand].concat(tot);
+    sh.getRange(2, 1, 4, W).setValues([mrow, dates, labels, total]);
+    sh.getRange(6, 1, N, W).setValues(shops.map(function (s, i) { return [s, cnt[s], sum[s]].concat(grid[i]); }));
     /* 見た目 */
-    sh.getRange(2, 1, 1, W).setBackground(DARK).setFontColor(GOLD).setFontWeight('bold').setHorizontalAlignment('center');
-    sh.getRange(3, 1, 1, W).setBackground(DARK).setFontColor('#E8E4D8').setFontSize(8).setHorizontalAlignment('center').setWrap(true);
-    sh.getRange(4, 1, 1, W).setBackground(PALE).setFontWeight('bold');
-    sh.getRange(4, 3, shops.length + 1, W - 2).setNumberFormat('¥#,##0;-¥#,##0;""');
-    sh.getRange(5, 2, shops.length, 1).setNumberFormat('0').setFontColor(GRAY).setHorizontalAlignment('center');
-    sh.getRange(4, 2).setFontColor(GRAY).setHorizontalAlignment('center');
-    sh.getRange(5, 3, shops.length, 1).setFontWeight('bold');
-    sh.setFrozenRows(4); sh.setFrozenColumns(3);
+    sh.getRange(2, 1, 1, W).setBackground('#FDF3D7').setFontWeight('bold').setHorizontalAlignment('center').setFontSize(10);
+    months.forEach(function (m) {
+      var rg = sh.getRange(2, 4 + m.from, 1, m.n);
+      if (m.n > 1) rg.merge();
+      rg.setBorder(true, true, true, true, null, null, GOLD, SpreadsheetApp.BorderStyle.SOLID);
+    });
+    sh.getRange(3, 1, 1, W).setBackground(DARK).setFontColor(GOLD).setFontWeight('bold').setHorizontalAlignment('center');
+    sh.getRange(4, 1, 1, W).setBackground(DARK).setFontColor('#E8E4D8').setFontSize(8).setHorizontalAlignment('center').setWrap(true);
+    sh.getRange(5, 1, 1, W).setBackground(PALE).setFontWeight('bold');
+    sh.getRange(5, 3, N + 1, W - 2).setNumberFormat('¥#,##0;-¥#,##0;""');
+    sh.getRange(6, 2, N, 1).setNumberFormat('0').setFontColor(GRAY).setHorizontalAlignment('center');
+    sh.getRange(5, 2).setFontColor(GRAY).setHorizontalAlignment('center');
+    sh.getRange(6, 3, N, 1).setFontWeight('bold');
+    sh.setFrozenRows(5); sh.setFrozenColumns(3);
     sh.setColumnWidth(1, 150); sh.setColumnWidth(2, 44); sh.setColumnWidth(3, 82);
     if (cols.length) sh.setColumnWidths(4, cols.length, 64);
-    sh.setRowHeight(3, 30);
+    sh.setRowHeight(4, 30);
     /* 月が変わるごとに薄い色を交互に付ける（1列ずつ塗ると遅いので、色の表を作って1回で塗る） */
     var shade = false, prev = '', colBg = cols.map(function (c) {
       var mo = c.date.slice(5, 7);
@@ -909,17 +943,18 @@ function renderTsukijiViews_(ss, years) {
     });
     var bg = [cols.map(function () { return PALE; })];
     shops.forEach(function () { bg.push(colBg); });
-    if (cols.length) sh.getRange(4, 4, shops.length + 1, cols.length).setBackgrounds(bg);
+    if (cols.length) sh.getRange(5, 4, N + 1, cols.length).setBackgrounds(bg);
     /* 1年分を超えて細くならないよう、使っていない列は消す */
     var maxC = sh.getMaxColumns(); if (maxC > W + 2) sh.deleteColumns(W + 3, maxC - W - 2);
   });
-  /* 年のシートは新しい年が先頭 */
-  Object.keys(allYears).sort().reverse().forEach(function (y, i) {
-    var s = ss.getSheetByName(y); if (s) { ss.setActiveSheet(s); ss.moveActiveSheet(i + 1); }
-  });
-  renderTsukijiShops_(ss, rows, Object.keys(allYears).length + 1);
-  var cur = ss.getSheetByName(String(new Date().getFullYear()));
-  if (cur) ss.setActiveSheet(cur);
+  /* 年のシートは新しい年が先頭（並べ替えは遅いので、新しい年のシートができたときだけ） */
+  if (created) {
+    Object.keys(allYears).sort().reverse().forEach(function (y, i) {
+      var s = ss.getSheetByName(y); if (s) { ss.setActiveSheet(s); ss.moveActiveSheet(i + 1); }
+    });
+  }
+  renderTsukijiShops_(ss, rows, created ? Object.keys(allYears).length + 1 : 0);
+  if (created) { var cur = ss.getSheetByName(String(new Date().getFullYear())); if (cur) ss.setActiveSheet(cur); }
 }
 
 /** 店舗シート: 店ごとの回数・合計・最後に行った日（今年と全期間） */
@@ -943,7 +978,7 @@ function renderTsukijiShops_(ss, rows, pos) {
   sh.getRange('B:B').setHorizontalAlignment('center'); sh.getRange('D:D').setHorizontalAlignment('center');
   sh.setFrozenRows(1);
   [160, 80, 100, 90, 110, 110].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
-  ss.setActiveSheet(sh); ss.moveActiveSheet(pos);
+  if (pos) { ss.setActiveSheet(sh); ss.moveActiveSheet(pos); }
 }
 
 /* ===== 寺田倉庫（「寺田倉庫」シート。保管タブがどの端末でも同じ一覧を出すため） ===== */
@@ -1022,7 +1057,7 @@ function appPassword_() {
 }
 
 /** 読み取りだけの関数（書き込みのロックを取らない） */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents', 'getTsukiji', 'getSoirees'];
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents', 'getTsukiji', 'getSoirees', 'renderTsukiji'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
@@ -1048,6 +1083,7 @@ function apiHandlers_() {
     deleteEvent:   function (arg) { return deleteEvent(arg); },
     getTsukiji:    function (arg) { return getTsukiji(); },
     saveTsukiji:   function (arg) { return saveTsukiji(arg); },
+    renderTsukiji: function (arg) { return renderTsukiji(arg); },
     deleteTsukiji: function (arg) { return deleteTsukiji(arg); },
     saveStorage:   function (arg) { return saveStorage(arg); },
     setPurchaseDoc: function (arg) { return setPurchaseDoc(arg); }

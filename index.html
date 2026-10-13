@@ -646,7 +646,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v21 · 2026-10-13</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v22 · 2026-10-13</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -2609,22 +2609,26 @@ function saveTsukijiUI() {
   if (!date || !lines.length) { alert('日付と、お店・金額を入れてください'); return; }
   var total = lines.reduce(function(s, l) { return s + parseInt(l.amount, 10); }, 0);
   showLoader(true);
-  // 試食会を作る場合は、先に会を作って食費（築地仕入れ）を入れる
-  var first = ev === 'new'
-    ? gasCall('saveEvent', { date: date, name: '試食会', status: '実施', memo: '', dishes: '', people: [],
-        costs: [{ cat: '食費', desc: '築地仕入れ', amount: total }] }).then(function(r) { if (r.error) throw new Error(r.error); return r.id; })
-    : Promise.resolve(ev);
-  first.then(function(eventId) {
-    return gasCall('saveTsukiji', { rows: lines.map(function(l) {
-      return { date: date, shop: String(l.shop).trim(), amount: parseInt(l.amount, 10), tag: tag, eventId: eventId, memo: '' };
-    }) });
-  }).then(function(r) {
+  var rows = lines.map(function(l) {
+    return { date: date, shop: String(l.shop).trim(), amount: parseInt(l.amount, 10), tag: tag, eventId: ev === 'new' ? '' : ev, memo: '' };
+  });
+  // 試食会を作る場合も1回の通信で（会を作る → その会の分として保存）
+  var arg = { rows: rows };
+  if (ev === 'new') arg.newEvent = { date: date, name: '試食会', status: '実施', memo: '', dishes: '', people: [],
+    costs: [{ cat: '食費', desc: '築地仕入れ', amount: total }] };
+  gasCall('saveTsukiji', arg).then(function(r) {
     if (r.error) throw new Error(r.error);
+    // 保存した分だけ手元に足す（全部を取り直さない）
+    tjData = tjData || { rows: [], shops: [] };
+    rows.forEach(function(x, i) { x.id = r.ids[i]; if (r.eventId) x.eventId = r.eventId; tjData.rows.push(x);
+      if (tjData.shops.indexOf(x.shop) < 0) tjData.shops.push(x.shop); });
+    try { localStorage.setItem('tsukijiCache', JSON.stringify(tjData)); } catch(e) {}
     tjFavVals = {};
-    if (r.tsukiji) { tjData = r.tsukiji; try { localStorage.setItem('tsukijiCache', JSON.stringify(tjData)); } catch(e) {} }
     closeModal('tsukijiModal'); showLoader(false);
     renderTsukijiRecent();
-    if (ev === 'new') fetchEvents(); else renderEvents();
+    if (r.eventId) fetchEvents(); else renderEvents();
+    // 築地のファイルの表（年ごと・店舗）は裏で作り直す。待たない
+    gasCall('renderTsukiji', { years: r.years }, 60000).catch(function() {});
   }).catch(function(e) { alert(e.message || e); showLoader(false); });
 }
 
