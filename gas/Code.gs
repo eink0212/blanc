@@ -689,7 +689,8 @@ function getEvents() {
 
 /** ワイン会タブを開いたとき用。会と築地の仕入れを1回の通信で返す */
 function getSoirees() {
-  return { events: getEvents().events, tsukiji: getTsukiji() };
+  var dirty = PropertiesService.getScriptProperties().getProperty('TSUKIJI_DIRTY') || '';
+  return { events: getEvents().events, tsukiji: getTsukiji(), tsukijiDirty: dirty ? dirty.split(',') : [] };
 }
 
 /** シートから、その開催IDの行を消す（下から） */
@@ -833,6 +834,8 @@ function saveTsukiji(arg) {
     ids.push(rec[0]); years[m[1]] = true;
   }
   if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, TJ_HEAD.length).setValues(add);
+  /* 表がまだ作り直されていない印。renderTsukiji で消す（裏の作り直しが失敗しても、次に開いたとき作り直せるように） */
+  PropertiesService.getScriptProperties().setProperty('TSUKIJI_DIRTY', Object.keys(years).join(','));
   return { ok: true, ids: ids, eventId: newEventId, years: Object.keys(years) };
 }
 
@@ -841,6 +844,7 @@ function renderTsukiji(arg) {
   var ss = tsukijiBook_();
   if (!ss) return { error: '築地のファイルが設定されていません' };
   renderTsukijiViews_(ss, (arg && arg.years) || []);
+  PropertiesService.getScriptProperties().deleteProperty('TSUKIJI_DIRTY');
   return { ok: true };
 }
 

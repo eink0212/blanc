@@ -646,7 +646,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v22 · 2026-10-13</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v23 · 2026-10-13</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -2244,6 +2244,8 @@ function fetchEvents() {
     try { localStorage.setItem('eventsCache', JSON.stringify(evData)); } catch(e) {}
     if (r.tsukiji && r.tsukiji.rows) { tjData = r.tsukiji; try { localStorage.setItem('tsukijiCache', JSON.stringify(tjData)); } catch(e) {} }
     renderEvents(); renderTsukijiRecent();
+    // 前回の保存のあと築地の表が作り直されていなければ、裏で作り直す
+    if (r.tsukijiDirty && r.tsukijiDirty.length) gasCall('renderTsukiji', { years: r.tsukijiDirty }, 60000).catch(function() {});
   }).catch(function() { evFetching = false; });
 }
 
