@@ -992,6 +992,226 @@ function renderTsukijiShops_(ss, rows, pos) {
   if (pos) { ss.setActiveSheet(sh); ss.moveActiveSheet(pos); }
 }
 
+/* ===== 開催記録（研究資料。別ファイル「Ein's Wine 開催記録」。ファイルIDはスクリプトプロパティ RECORD_SS_ID） =====
+ * 1回＝1シート。自動の部分（日付・名前・参加者・金額・ワイン・築地）は会を保存するたびに作り直す。
+ * 書く部分（テーマ・振り返り・料理とペアリング）はシートに直接書く。作り直しても消えない（決まった場所に置き、読んでから戻す）。
+ */
+var RC = { ink: '#1A1916', gold: '#B8963E', cream: '#FBF8F1', paper: '#FFFFFF', muted: '#8F8878', line: '#E6DFCF',
+           serif: 'Playfair Display', sans: 'Noto Sans JP' };
+/* 書く欄の場所（行は固定。ワインと築地は書く欄より下に置くので、本数が変わっても動かない） */
+var RC_WRITE = { theme: 'B4', good: 'B12', improve: 'E12', reaction: 'B15', next: 'E15' };
+var RC_DISH_ROW = 19, RC_DISH_N = 12;
+
+function recordBook_(create) {
+  var props = PropertiesService.getScriptProperties(), id = props.getProperty('RECORD_SS_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  if (!create) return null;
+  var ss = SpreadsheetApp.create("Ein's Wine 開催記録");
+  ss.getSheets()[0].setName('目次');
+  props.setProperty('RECORD_SS_ID', ss.getId());
+  return ss;
+}
+
+function rcSheetName_(e) { return e.date.replace(/-/g, '.') + ' ' + String(e.name).replace(/[\[\]\*\?\/\\:]/g, '').slice(0, 40); }
+function rcYen_(v) { return '¥' + Math.round(Number(v) || 0).toLocaleString(); }
+
+/** 会の画面を作り直す（1回分）。arg: { eventId } / { all:true, from, n }（まとめて作る） */
+function renderRecord(arg) {
+  var ss = recordBook_(true);
+  var evs = getEvents().events;
+  var targets = arg && arg.eventId ? evs.filter(function (e) { return e.id === arg.eventId; })
+              : evs.slice().reverse().slice((arg && arg.from) || 0, ((arg && arg.from) || 0) + ((arg && arg.n) || 1000));
+  if (!targets.length) return { error: '対象の会がありません' };
+  var tastings = rcTastings_(), tj = rcTsukiji_();
+  targets.forEach(function (e) { rcRenderOne_(ss, e, tastings, tj); });
+  rcIndex_(ss, evs);
+  return { ok: true, rendered: targets.length };
+}
+
+function rcTastings_() {
+  var sh = getSpreadsheet().getSheetByName(SHEET_TASTING);
+  return sh ? sheetToObjects(sh, HEADERS.tasting).r : [];
+}
+function rcTsukiji_() {
+  var ss = tsukijiBook_();
+  return ss ? tjRows_(ss) : [];
+}
+
+function rcRenderOne_(ss, e, tastings, tj) {
+  var name = rcSheetName_(e);
+  var sh = ss.getSheetByName(name);
+  if (!sh) {
+    /* 名前が変わった会の古いシート（会IDのメモで探す）は名前を付け直して使う */
+    ss.getSheets().forEach(function (s) { if (!sh && s.getRange('A1').getNote() === e.id) { sh = s; sh.setName(name); } });
+  }
+  var keep = null;
+  if (sh) {
+    keep = {};
+    Object.keys(RC_WRITE).forEach(function (k) { keep[k] = sh.getRange(RC_WRITE[k]).getValue(); });
+    keep.dishes = sh.getRange(RC_DISH_ROW, 2, RC_DISH_N, 6).getValues();
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
+    sh.clear();
+  } else {
+    sh = ss.insertSheet(name);
+  }
+  sh.setHiddenGridlines(true);
+  sh.getRange('A1').setNote(e.id);
+  var widths = [28, 150, 200, 160, 90, 90, 200, 28];
+  if (sh.getMaxColumns() > 8) sh.deleteColumns(9, sh.getMaxColumns() - 8);
+  widths.forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.getRange(1, 1, sh.getMaxRows(), 8).setFontFamily(RC.sans).setFontColor(RC.ink).setFontSize(10).setVerticalAlignment('middle');
+
+  /* 見出し */
+  var wd = ['日', '月', '火', '水', '木', '金', '土'][new Date(e.date + 'T00:00:00+09:00').getDay()];
+  sh.setRowHeight(1, 22);
+  sh.getRange('B2').setValue((e.name === '試食会' ? 'ESSAI' : 'SOIRÉE') + '  ·  ' + e.date.replace(/-/g, '.') + '（' + wd + '）')
+    .setFontFamily(RC.serif).setFontColor(RC.gold).setFontSize(10);
+  sh.getRange('B3:G3').merge().setValue(e.name).setFontFamily(RC.serif).setFontSize(26).setFontWeight('normal');
+  sh.setRowHeight(3, 46);
+  sh.getRange('B4:G4').merge().setFontStyle('italic').setFontColor('#5A554C').setFontSize(12).setBackground(RC.cream).setWrap(true);
+  sh.getRange('B4').setNote('テーマ（自由に書けます。作り直しても消えません）');
+  sh.setRowHeight(4, 30);
+  sh.getRange('B5:G5').setBorder(null, null, true, null, null, null, RC.gold, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  sh.setRowHeight(5, 8); sh.setRowHeight(6, 14);
+
+  /* 概要: 参加者・収入・費用・利益 */
+  var people = e.people.map(function (p) { return p.name; }).join('、');
+  sh.getRange('B7:G7').setValues([['参加者', '', '', '収入', '費用', '利益']]).setFontColor(RC.muted).setFontSize(9);
+  sh.getRange('C7:D7').merge();
+  sh.getRange('B8').setValue(e.people.length + ' 名').setFontFamily(RC.serif).setFontSize(18);
+  sh.getRange('C8:D8').merge().setValue(people || '—').setWrap(true).setFontSize(10);
+  sh.getRange('E8:G8').setValues([[rcYen_(e.income), rcYen_(e.cost), rcYen_(e.profit) + (e.income ? '  ' + Math.round(e.profit / e.income * 100) + '%' : '')]])
+    .setFontFamily(RC.serif).setFontSize(14);
+  sh.getRange('B7:G8').setBackground(RC.cream);
+  sh.setRowHeight(8, 40); sh.setRowHeight(9, 18);
+
+  /* 見出しの作り方 */
+  var section = function (row, fr, ja) {
+    sh.getRange(row, 2, 1, 6).merge().setValue(fr + '　' + ja).setFontFamily(RC.serif).setFontSize(14).setFontColor(RC.ink)
+      .setBorder(null, null, true, null, null, null, RC.line, SpreadsheetApp.BorderStyle.SOLID);
+    sh.setRowHeight(row, 30);
+  };
+  var box = function (labelCell, boxRange, label) {
+    sh.getRange(labelCell).setValue(label).setFontColor(RC.gold).setFontSize(9).setFontWeight('bold');
+    sh.getRange(boxRange).merge().setBackground(RC.cream).setWrap(true).setVerticalAlignment('top').setFontSize(10)
+      .setBorder(true, true, true, true, null, null, RC.line, SpreadsheetApp.BorderStyle.SOLID);
+  };
+
+  /* 振り返り（書く欄） */
+  section(10, 'Réflexions', '振り返り');
+  box('B11', 'B12:D12', '良かったこと'); box('E11', 'E12:G12', '改善したいこと');
+  box('B14', 'B15:D15', '参加者の反応'); box('E14', 'E15:G15', '次回へのメモ');
+  sh.setRowHeight(12, 96); sh.setRowHeight(15, 96); sh.setRowHeight(13, 10); sh.setRowHeight(16, 18);
+
+  /* 料理とペアリング（書く欄。最初は料理メモから入れる） */
+  section(17, 'Cuisine', '料理とペアリング');
+  sh.getRange('B18:G18').setValues([['料理', '', '合わせたワイン', '', 'メモ', '']]).setFontColor(RC.muted).setFontSize(9);
+  for (var r = 0; r < RC_DISH_N; r++) {
+    var rr = RC_DISH_ROW + r;
+    sh.getRange(rr, 2, 1, 2).merge(); sh.getRange(rr, 4, 1, 2).merge(); sh.getRange(rr, 6, 1, 2).merge();
+    sh.getRange(rr, 2, 1, 6).setBorder(null, null, true, null, null, null, RC.line, SpreadsheetApp.BorderStyle.DOTTED).setWrap(true);
+    sh.setRowHeight(rr, 26);
+  }
+  sh.getRange(RC_DISH_ROW, 2, RC_DISH_N, 6).setBackground(RC.paper);
+
+  /* 書く欄を戻す（無ければ料理メモから） */
+  if (keep) {
+    Object.keys(RC_WRITE).forEach(function (k) { sh.getRange(RC_WRITE[k]).setValue(keep[k]); });
+    sh.getRange(RC_DISH_ROW, 2, RC_DISH_N, 6).setValues(keep.dishes);
+  } else {
+    var dl = String(e.dishes || '').split('\n').map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+    var vals = [];
+    for (var d = 0; d < RC_DISH_N; d++) {
+      var parts = (dl[d] || '').split(' — ');
+      vals.push([parts[0] || '', '', '', '', parts.slice(1).join(' — '), '']);
+    }
+    sh.getRange(RC_DISH_ROW, 2, RC_DISH_N, 6).setValues(vals);
+  }
+
+  /* ワイン（自動） */
+  var row = RC_DISH_ROW + RC_DISH_N + 1;
+  sh.setRowHeight(row - 1, 18);
+  section(row, 'Vins', 'ワイン'); row++;
+  sh.getRange(row, 2, 1, 6).setValues([['ワイン', '', '生産者', 'ヴィンテージ', '原価', 'テイスティング']]).setFontColor(RC.muted).setFontSize(9);
+  sh.getRange(row, 2, 1, 2).merge(); row++;
+  var wines = e.costs.filter(function (c) { return c.cat === 'ワイン'; });
+  /* テイスティングは会の日から1週間以内に書いたものを、その会のものとして出す */
+  var ud = new Date(e.date + 'T00:00:00+09:00'); ud.setDate(ud.getDate() + 7);
+  var upTo = Utilities.formatDate(ud, 'Asia/Tokyo', 'yyyy-MM-dd');
+  if (!wines.length) { sh.getRange(row, 2).setValue('—').setFontColor(RC.muted); row++; }
+  wines.forEach(function (c, i) {
+    var t = tastings.filter(function (x) { var td = String(x[3]).slice(0, 10); return c.wineId && String(x[1]) === c.wineId && td >= e.date && td <= upTo; })[0];
+    var note = t ? ('★★★★★'.slice(0, Number(t[5]) || 0) + (t[12] ? '  ' + t[12] : '')) : '';
+    var label = c.wineId ? (c.name || c.desc) : c.desc;
+    sh.getRange(row, 2, 1, 2).merge();
+    sh.getRange(row, 2, 1, 6).setValues([[(i + 1) + '.  ' + label, '', c.producer || '', c.vintage || '', c.amount ? rcYen_(c.amount) : '—', note]])
+      .setWrap(true).setBorder(null, null, true, null, null, null, RC.line, SpreadsheetApp.BorderStyle.DOTTED);
+    sh.getRange(row, 2).setFontFamily(RC.serif).setFontSize(11);
+    sh.getRange(row, 7).setFontColor('#5A554C').setFontSize(9);
+    sh.setRowHeight(row, 34);
+    row++;
+  });
+  var others = e.costs.filter(function (c) { return c.cat !== 'ワイン'; });
+  if (others.length) {
+    row++;
+    sh.getRange(row, 2).setValue('ほかの費用').setFontColor(RC.muted).setFontSize(9); row++;
+    others.forEach(function (c) {
+      sh.getRange(row, 2, 1, 2).merge();
+      sh.getRange(row, 2, 1, 5).setValues([[c.cat + '　' + c.desc, '', '', '', rcYen_(c.amount)]]).setFontSize(10);
+      row++;
+    });
+  }
+
+  /* 築地の仕入れ（自動） */
+  var tr = tj.filter(function (x) { return x.eventId === e.id; });
+  if (tr.length) {
+    row++;
+    section(row, 'Tsukiji', '築地の仕入れ'); row++;
+    var tt = tr.reduce(function (s, x) { return s + x.amount; }, 0);
+    sh.getRange(row, 2, 1, 6).merge().setValue(tr.map(function (x) { return x.shop + ' ' + rcYen_(x.amount); }).join('　·　') + '　　合計 ' + rcYen_(tt))
+      .setWrap(true).setFontSize(10).setFontColor('#5A554C');
+    sh.setRowHeight(row, Math.max(26, 18 * Math.ceil(tr.length / 6)));
+    row++;
+  }
+  row++;
+  sh.getRange(row, 2, 1, 6).merge().setValue('テーマ・振り返り・料理とペアリングは自由に書けます（消えません）。ワイン・築地・金額はアプリで保存すると作り直されます。')
+    .setFontColor(RC.muted).setFontSize(8).setFontStyle('italic');
+  if (sh.getMaxRows() > row + 2) sh.deleteRows(row + 3, sh.getMaxRows() - row - 2);
+}
+
+/** 目次（新しい順。名前を押すとその回のシートへ） */
+function rcIndex_(ss, evs) {
+  var ix = ss.getSheetByName('目次') || ss.insertSheet('目次', 0);
+  ix.getRange(1, 1, ix.getMaxRows(), ix.getMaxColumns()).breakApart();
+  ix.clear(); ix.setHiddenGridlines(true);
+  var gid = {}, themes = {};
+  ss.getSheets().forEach(function (s) { gid[s.getName()] = s.getSheetId(); });
+  [28, 110, 220, 260, 60, 100, 28].forEach(function (w, i) { ix.setColumnWidth(i + 1, w); });
+  ix.getRange(1, 1, ix.getMaxRows(), 7).setFontFamily(RC.sans).setFontColor(RC.ink).setFontSize(10).setVerticalAlignment('middle');
+  ix.getRange('B2').setValue("EIN'S WINE").setFontFamily(RC.serif).setFontColor(RC.gold).setFontSize(10);
+  ix.getRange('B3:F3').merge().setValue('開催記録').setFontFamily(RC.serif).setFontSize(26); ix.setRowHeight(3, 46);
+  ix.getRange('B4:F4').setBorder(null, null, true, null, null, null, RC.gold, SpreadsheetApp.BorderStyle.SOLID_MEDIUM); ix.setRowHeight(4, 8);
+  ix.getRange('B6:F6').setValues([['日付', '会の名前', 'テーマ', '人数', '利益']]).setFontColor(RC.muted).setFontSize(9)
+    .setBorder(null, null, true, null, null, null, RC.line, SpreadsheetApp.BorderStyle.SOLID);
+  var rows = evs.map(function (e) {
+    var n = rcSheetName_(e), s = ss.getSheetByName(n), th = s ? s.getRange(RC_WRITE.theme).getValue() : '';
+    return [e.date.replace(/-/g, '.'), gid[n] !== undefined ? '=HYPERLINK("#gid=' + gid[n] + '","' + String(e.name).replace(/"/g, '""') + '")' : e.name,
+            th, e.people.length || '', e.status === '実施' ? rcYen_(e.profit) : e.status];
+  });
+  if (rows.length) {
+    ix.getRange(7, 2, rows.length, 5).setValues(rows);
+    ix.getRange(7, 2, rows.length, 5).setBorder(null, null, true, null, null, true, RC.line, SpreadsheetApp.BorderStyle.DOTTED);
+    ix.getRange(7, 3, rows.length, 1).setFontFamily(RC.serif).setFontSize(11);
+    ix.getRange(7, 4, rows.length, 1).setFontStyle('italic').setFontColor('#5A554C');
+    ix.getRange(7, 5, rows.length, 1).setHorizontalAlignment('center');
+    ix.getRange(7, 6, rows.length, 1).setHorizontalAlignment('right');
+    ix.setRowHeights(7, rows.length, 26);
+    evs.forEach(function (e, i) { if (e.name === '試食会') ix.getRange(7 + i, 2, 1, 5).setFontColor(RC.muted); });
+  }
+  ix.setFrozenRows(6);
+  ss.setActiveSheet(ix); ss.moveActiveSheet(1);
+}
+
 /* ===== 寺田倉庫（「寺田倉庫」シート。保管タブがどの端末でも同じ一覧を出すため） ===== */
 var STORAGE_SHEET = '寺田倉庫';
 var STORAGE_HEAD = ['寺田ID', '生産者', 'ワイン名', 'ヴィンテージ', '色', '産地', '容量', '入庫日', 'セラー在庫', 'セラーID', 'メモ'];
@@ -1068,7 +1288,7 @@ function appPassword_() {
 }
 
 /** 読み取りだけの関数（書き込みのロックを取らない） */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents', 'getTsukiji', 'getSoirees', 'renderTsukiji'];
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents', 'getTsukiji', 'getSoirees', 'renderTsukiji', 'renderRecord'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
@@ -1095,6 +1315,7 @@ function apiHandlers_() {
     getTsukiji:    function (arg) { return getTsukiji(); },
     saveTsukiji:   function (arg) { return saveTsukiji(arg); },
     renderTsukiji: function (arg) { return renderTsukiji(arg); },
+    renderRecord:  function (arg) { return renderRecord(arg); },
     deleteTsukiji: function (arg) { return deleteTsukiji(arg); },
     saveStorage:   function (arg) { return saveStorage(arg); },
     setPurchaseDoc: function (arg) { return setPurchaseDoc(arg); }

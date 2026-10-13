@@ -166,6 +166,7 @@ headers: { 'Content-Type': 'text/plain;charset=utf-8' }   // ← ここを変え
 | `getPurchaseSummary` | なし | 購入履歴の年ごとの本数・金額（トップ画面） | ○ |
 | `getEvents` / `saveEvent` / `deleteEvent` | なし / 1回分 / id | ワイン会（別ファイル。スクリプトプロパティ `EVENTS_SS_ID`。無ければ最初の保存で作る） | ○ |
 | `getTsukiji` / `saveTsukiji` / `deleteTsukiji` | なし / `{rows}` / id | 築地の仕入れ（別ファイル。スクリプトプロパティ `TSUKIJI_SS_ID`。保存のたびに年の表と店舗シートを作り直す） | ○ |
+| `renderRecord` | `{eventId}` / `{from, n}` | 開催記録（別ファイル。`RECORD_SS_ID`）の1回分のページと目次を作り直す（書く欄は残す） | ○（会・築地・テイスティングの保存後に裏で） |
 | `setPurchaseDoc` | `{batchId, year, doc}` | 取込IDの行の「書類」列を埋める | －（保守用） |
 
 書き込み系は `dispatch_` で `LockService` を取り、1つずつ実行する（importReception は自前でロック）。

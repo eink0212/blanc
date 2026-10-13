@@ -646,7 +646,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v23 · 2026-10-13</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v24 · 2026-10-13</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -1657,6 +1657,7 @@ function saveTasting() {
     if (editId) { var idx=-1; db.tastings.forEach(function(x,i){if(x.id===editId)idx=i;}); if(idx>=0) db.tastings[idx]=tObj; }
     else db.tastings.push(tObj);
     closeModal('tastingModal'); renderTasting(); renderDash(); showLoader(false);
+    if (evTastingFor) { gasCall('renderRecord', { eventId: evTastingFor }, 90000).catch(function() {}); evTastingFor = ''; }
   }).catch(function(e) { alert(e.message); showLoader(false); });
 }
 
@@ -2427,6 +2428,7 @@ function saveEventUI() {
     document.getElementById('ev-id').value = r.id;
     document.getElementById('ev-del').style.display = '';
     renderEvents(); setEventMode('view'); showLoader(false);
+    gasCall('renderRecord', { eventId: r.id }, 90000).catch(function() {});   // 開催記録のページ（裏で作り直す）
   }).catch(function(e) { alert(e.message); showLoader(false); });
 }
 
@@ -2481,8 +2483,10 @@ function pickWine(id) {
 }
 
 // 費用のワインからテイスティングを書く（日付＝会の日、シーン＝会の名前）
+var evTastingFor = '';   // 会の画面からテイスティングを書いているときの会ID（保存後に開催記録を作り直す）
 function evTasting(i) {
   readEventLines();
+  evTastingFor = evDraft.id || '';
   var c = evDraft.costs[i];
   var date = document.getElementById('ev-date').value, scene = document.getElementById('ev-name').value.trim();
   showAddTasting();
@@ -2631,6 +2635,8 @@ function saveTsukijiUI() {
     if (r.eventId) fetchEvents(); else renderEvents();
     // 築地のファイルの表（年ごと・店舗）は裏で作り直す。待たない
     gasCall('renderTsukiji', { years: r.years }, 60000).catch(function() {});
+    var evId = r.eventId || (ev !== 'new' ? ev : '');
+    if (evId) gasCall('renderRecord', { eventId: evId }, 90000).catch(function() {});
   }).catch(function(e) { alert(e.message || e); showLoader(false); });
 }
 
