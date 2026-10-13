@@ -694,6 +694,18 @@ function getSoirees() {
 }
 
 /** シートから、その開催IDの行を消す（下から） */
+/**
+ * その開催IDの行を入れ替える。1行ずつ deleteRow すると1回で数秒かかっていたので、
+ * 全部読んで、その会の行を除いて新しい行を足し、1回で書き戻す（余った行は消す）
+ */
+function evReplaceRows_(sh, id, w, rows) {
+  var n = sh.getLastRow() - 1;
+  var v = n > 0 ? sh.getRange(2, 1, n, w).getValues() : [];
+  var keep = v.filter(function (r) { return String(r[0]) !== id; }).concat(rows);
+  if (keep.length) sh.getRange(2, 1, keep.length, w).setValues(keep);
+  if (n > keep.length) sh.getRange(2 + keep.length, 1, n - keep.length, w).clearContent();
+}
+
 function evDeleteRows_(sh, id) {
   var n = sh.getLastRow() - 1;
   if (n < 1) return;
@@ -728,11 +740,10 @@ function saveEvent(ev) {
   if (row > 0) sh.getRange(row, 1, 1, EV_HEAD.length).setValues([rec]);
   else sh.getRange(sh.getLastRow() + 1, 1, 1, EV_HEAD.length).setValues([rec]);
   var ps = ss.getSheetByName('参加者'), cs = ss.getSheetByName('費用');
-  evDeleteRows_(ps, id); evDeleteRows_(cs, id);
-  if (people.length) ps.getRange(ps.getLastRow() + 1, 1, people.length, EV_PEOPLE_HEAD.length).setValues(people.map(function (p) {
+  evReplaceRows_(ps, id, EV_PEOPLE_HEAD.length, people.map(function (p) {
     return [id, d, name, String(p.name || '').trim(), Number(p.fee) || 0];
   }));
-  if (costs.length) cs.getRange(cs.getLastRow() + 1, 1, costs.length, EV_COST_HEAD.length).setValues(costs.map(function (c) {
+  evReplaceRows_(cs, id, EV_COST_HEAD.length, costs.map(function (c) {
     return [id, d, name, EV_CATS.indexOf(c.cat) >= 0 ? c.cat : 'その他', String(c.desc || '').trim(), Number(c.amount) || 0,
             String(c.wineId || ''), String(c.producer || ''), String(c.name || ''), String(c.vintage || '')];
   }));

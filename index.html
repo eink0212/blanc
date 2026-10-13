@@ -646,7 +646,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v25 · 2026-10-13</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v26 · 2026-10-13</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -2332,7 +2332,8 @@ function renderEventView() {
   var tj = (tjData && e.id) ? tjData.rows.filter(function(r) { return r.eventId === e.id; }) : [];
   if (tj.length) {
     var tt = tj.reduce(function(s, r) { return s + r.amount; }, 0);
-    h += '<div class="evv-sec">築地の仕入れ ' + yen(tt) + '</div><div class="evv-text">' +
+    h += '<div class="evv-sec" style="display:flex;justify-content:space-between;align-items:center;">築地の仕入れ ' + yen(tt) +
+      '<button class="btn-sm" onclick="evApplyTsukijiSave(' + tt + ')">食費に反映</button></div><div class="evv-text">' +
       tj.map(function(r) { return esc(r.shop) + ' ' + yen(r.amount); }).join('　') + '</div>';
   }
   if (e.dishes) h += '<div class="evv-sec">料理</div><div class="evv-text">' + esc(e.dishes) + '</div>';
@@ -2653,6 +2654,13 @@ function renderEventTsukiji() {
       return esc(r.date.slice(5).replace('-', '/')) + ' ' + esc(r.shop) + ' ' + yen(r.amount) + (r.tag === 'T' ? '（T）' : '');
     }).join('　') + '</div>';
 }
+// 見る画面から: 食費を築地の合計にそろえて、そのまま保存する
+function evApplyTsukijiSave(total) {
+  var before = JSON.stringify(evDraft.costs);
+  evApplyTsukiji(total);
+  if (JSON.stringify(evDraft.costs) !== before) saveEventUI();
+}
+
 function evApplyTsukiji(total) {
   readEventLines();
   var c = null; evDraft.costs.forEach(function(x) { if (x.desc === '築地仕入れ') c = x; });
