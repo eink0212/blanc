@@ -646,7 +646,7 @@ body{overflow-x:clip;min-height:100dvh}
 </div>
 
 <!-- どの版が表示されているかを確かめるための表示。sw.js の CACHE_VERSION と揃える -->
-<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v24 · 2026-10-13</div>
+<div id="appVersion" style="text-align:center;font-size:10px;letter-spacing:0.08em;color:var(--text3);padding:8px 16px calc(16px + env(safe-area-inset-bottom));">Blanc v25 · 2026-10-13</div>
 
 <!-- ── Wine modal ── -->
 <div class="modal-overlay" id="wineModal">
@@ -2552,13 +2552,14 @@ function openTsukiji() {
 var TJ_FAV_N = 16, tjAll = false, tjFavVals = {};
 function renderTjFav() {
   var shops = (tjData && tjData.shops) || [];
-  var list = tjAll ? shops : shops.slice(0, TJ_FAV_N);
+  var favN = (tjData && tjData.favCount) || TJ_FAV_N;
+  var list = tjAll ? shops : shops.slice(0, favN);
   document.getElementById('tj-fav').innerHTML = '<div class="tj-fav">' + list.map(function(s, i) {
     var v = tjFavVals[s] || '';
     return '<label><span>' + esc(s) + '</span><input type="number" inputmode="numeric" data-shop="' + esc(s) + '" value="' + esc(v) + '"' +
       (v ? ' class="filled"' : '') + ' oninput="tjFavInput(this)"></label>';
   }).join('') + '</div>';
-  document.getElementById('tj-more').style.display = (tjAll || shops.length <= TJ_FAV_N) ? 'none' : '';
+  document.getElementById('tj-more').style.display = (tjAll || shops.length <= favN) ? 'none' : '';
   tjTotal();
 }
 function tjFavInput(el) {
