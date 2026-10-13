@@ -1067,6 +1067,9 @@ function rcRenderOne_(ss, e, tastings, tj) {
   } else {
     sh = ss.insertSheet(name);
   }
+  /* 前回の作り直しで行を詰めているので、書く前に行を足しておく（足りないと「範囲がシートの外」になる） */
+  var need = 60 + e.costs.length * 2;
+  if (sh.getMaxRows() < need) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
   sh.setHiddenGridlines(true);
   sh.getRange('A1').setNote(e.id);
   var widths = [28, 150, 200, 160, 90, 90, 200, 28];
