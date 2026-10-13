@@ -687,6 +687,11 @@ function getEvents() {
   return { events: events };
 }
 
+/** ワイン会タブを開いたとき用。会と築地の仕入れを1回の通信で返す */
+function getSoirees() {
+  return { events: getEvents().events, tsukiji: getTsukiji() };
+}
+
 /** シートから、その開催IDの行を消す（下から） */
 function evDeleteRows_(sh, id) {
   var n = sh.getLastRow() - 1;
@@ -822,7 +827,7 @@ function saveTsukiji(arg) {
   if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, TJ_HEAD.length).setValues(add);
   SpreadsheetApp.flush();
   renderTsukijiViews_(ss, Object.keys(years));
-  return { ok: true, ids: ids };
+  return { ok: true, ids: ids, tsukiji: getTsukiji() };
 }
 
 function deleteTsukiji(id) {
@@ -896,14 +901,15 @@ function renderTsukijiViews_(ss, years) {
     sh.setColumnWidth(1, 150); sh.setColumnWidth(2, 44); sh.setColumnWidth(3, 82);
     if (cols.length) sh.setColumnWidths(4, cols.length, 64);
     sh.setRowHeight(3, 30);
-    /* 月が変わるごとに薄い色を交互に付ける */
-    var shade = false, prev = '';
-    cols.forEach(function (c, j) {
+    /* 月が変わるごとに薄い色を交互に付ける（1列ずつ塗ると遅いので、色の表を作って1回で塗る） */
+    var shade = false, prev = '', colBg = cols.map(function (c) {
       var mo = c.date.slice(5, 7);
       if (mo !== prev) { shade = !shade; prev = mo; }
-      if (shade) sh.getRange(4, 4 + j, shops.length + 1, 1).setBackground(j === -1 ? null : '#FAF8F2');
+      return shade ? '#FAF8F2' : '#FFFFFF';
     });
-    sh.getRange(4, 4, 1, cols.length).setBackground(PALE);
+    var bg = [cols.map(function () { return PALE; })];
+    shops.forEach(function () { bg.push(colBg); });
+    if (cols.length) sh.getRange(4, 4, shops.length + 1, cols.length).setBackgrounds(bg);
     /* 1年分を超えて細くならないよう、使っていない列は消す */
     var maxC = sh.getMaxColumns(); if (maxC > W + 2) sh.deleteColumns(W + 3, maxC - W - 2);
   });
@@ -1016,7 +1022,7 @@ function appPassword_() {
 }
 
 /** 読み取りだけの関数（書き込みのロックを取らない） */
-var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents', 'getTsukiji'];
+var READ_ONLY_FNS = ['getAllData', 'getWinesOnly', 'getSubData', 'getNameMaster', 'checkReception', 'getStorage', 'getPurchaseSummary', 'checkPass', 'getEvents', 'getTsukiji', 'getSoirees'];
 
 /** フロントから呼べる関数の一覧。ここに無い名前は実行されない。 */
 function apiHandlers_() {
@@ -1037,6 +1043,7 @@ function apiHandlers_() {
     getStorage:    function (arg) { return getStorage(); },
     getPurchaseSummary: function (arg) { return getPurchaseSummary(); },
     getEvents:     function (arg) { return getEvents(); },
+    getSoirees:    function (arg) { return getSoirees(); },
     saveEvent:     function (arg) { return saveEvent(arg); },
     deleteEvent:   function (arg) { return deleteEvent(arg); },
     getTsukiji:    function (arg) { return getTsukiji(); },
