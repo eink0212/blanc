@@ -788,6 +788,13 @@ function getTsukiji() {
   var rows = tjRows_(ss), y = String(new Date().getFullYear()), cnt = {}, all = {};
   rows.forEach(function (r) { all[r.shop] = (all[r.shop] || 0) + 1; if (r.date.slice(0, 4) === y) cnt[r.shop] = (cnt[r.shop] || 0) + 1; });
   var shops = Object.keys(all).sort(function (a, b) { return (cnt[b] || 0) - (cnt[a] || 0) || all[b] - all[a]; });
+  /* 「入力の並び」シートがあれば、そこに書いた順を先に（入力画面の並び。行を入れ替えれば並びが変わる） */
+  var order = ss.getSheetByName('入力の並び');
+  if (order && order.getLastRow() > 1) {
+    var fixed = order.getRange(2, 1, order.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); })
+      .filter(function (x) { return x; });
+    shops = fixed.concat(shops.filter(function (x) { return fixed.indexOf(x) < 0; }));
+  }
   return { rows: rows.map(function (r) { return { id: r.id, date: r.date, shop: r.shop, amount: r.amount, tag: r.tag, eventId: r.eventId, memo: r.memo }; }), shops: shops };
 }
 
